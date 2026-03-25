@@ -43,9 +43,17 @@ body:
       required: true
 
   - type: textarea
+    id: media
+    attributes:
+      label: Screenshots or recordings
+      description: If it helps illustrate the issue, drag and drop images or videos here.
+    validations:
+      required: false
+
+  - type: textarea
     id: context
     attributes:
       label: Anything else?
-      description: discord.js version, Node version, or anything else that might be relevant.
+      description: discord.js version, Node version, screenshots, recordings, or anything else that might be relevant. You can drag and drop images and videos directly into this field.
     validations:
       required: false
