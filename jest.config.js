@@ -1,6 +1,5 @@
-import type { Config } from 'jest';
-
-const config: Config = {
+/** @type {import('jest').Config} */
+module.exports = {
   displayName: 'flowcord',
   testEnvironment: 'node',
   transform: {
@@ -10,6 +9,5 @@ const config: Config = {
   moduleFileExtensions: ['ts', 'js'],
   coverageDirectory: 'coverage',
   collectCoverageFrom: ['src/**/*.ts', '!src/**/*.d.ts'],
+  passWithNoTests: true,
 };
-
-export default config;

@@ -1,27 +1,38 @@
 {
   "name": "flowcord",
-  "version": "0.1.0",
+  "version": "0.1.0-alpha.0",
   "description": "Lifecycle-driven interactive menu framework for Discord.js",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "require": "./dist/index.js",
-      "types": "./dist/index.d.ts"
+      "types": "./dist/index.d.ts",
+      "require": "./dist/index.js"
     }
   },
   "files": ["dist", "README.md", "ARCHITECTURE.md", "LICENSE"],
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "build": "npm run clean && tsc -p tsconfig.build.json",
     "build:watch": "tsc -p tsconfig.build.json --watch",
+    "clean": "node -e \"require('fs').rmSync('dist', { recursive: true, force: true })\"",
     "typecheck": "tsc --noEmit",
     "test": "jest",
     "test:coverage": "jest --coverage",
     "lint": "eslint src --ext .ts",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run build",
+    "release:alpha": "npm version prerelease --preid=alpha && git push --follow-tags",
+    "release:patch": "npm version patch && git push --follow-tags",
+    "release:minor": "npm version minor && git push --follow-tags"
+  },
+  "publishConfig": {
+    "tag": "next"
   },
   "keywords": ["discord", "discord.js", "menu", "interaction", "framework", "flowcord"],
   "license": "Apache-2.0",
+  "engines": {
+    "node": ">=16.9.0"
+  },
+  "sideEffects": false,
   "peerDependencies": {
     "discord.js": "^14.0.0"
   },
