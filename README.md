@@ -1,7 +1,7 @@
 <p align="center">
   <img src="https://img.shields.io/npm/v/@flowcord/core?style=flat-square" alt="npm version" />
   <img src="https://img.shields.io/badge/discord.js-v14-5865F2?style=flat-square&logo=discord&logoColor=white" alt="discord.js v14" />
-  <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="license" />
+  <img src="https://img.shields.io/badge/license-Apache%202.0-green?style=flat-square" alt="license" />
   <img src="https://img.shields.io/badge/TypeScript-5.x-blue?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript" />
 </p>
 
@@ -685,4 +685,4 @@ Contributions are welcome! Please:
 
 ## License
 
-[MIT](./LICENSE)
+[Apache 2.0](./LICENSE)

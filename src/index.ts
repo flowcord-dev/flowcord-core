@@ -2,7 +2,7 @@
  * FlowCord — Lifecycle-Driven Menu Framework for Discord.js
  *
  * @example
- * import { FlowCord, MenuBuilder, goTo, goBack } from 'flowcord';
+ * import { FlowCord, MenuBuilder, goTo, goBack } from '@flowcord/core';
  */
 
 // Main entry point

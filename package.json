@@ -1,5 +1,5 @@
 {
-  "name": "flowcord",
+  "name": "@flowcord/core",
   "version": "0.1.0-alpha.0",
   "description": "Lifecycle-driven interactive menu framework for Discord.js",
   "main": "./dist/index.js",
@@ -25,8 +25,18 @@
     "release:minor": "npm version minor && git push --follow-tags"
   },
   "publishConfig": {
+    "access": "public",
     "tag": "next"
   },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/flowcord-dev/flowcord-js.git"
+  },
+  "homepage": "https://github.com/flowcord-dev/flowcord-js#readme",
+  "bugs": {
+    "url": "https://github.com/flowcord-dev/flowcord-js/issues"
+  },
+  "author": "Nicholas Bely",
   "keywords": ["discord", "discord.js", "menu", "interaction", "framework", "flowcord"],
   "license": "Apache-2.0",
   "engines": {
