@@ -1,0 +1,59 @@
+name: Bug Report
+description: Something not working as expected? Let us know.
+labels: ["bug"]
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report this. Not sure if it's a bug? Ask in Discord first — no pressure either way.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear description of what went wrong.
+      placeholder: e.g. "Calling goBack() on a menu with setPreserveStateOnReturn() resets state instead of restoring it."
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+      placeholder: e.g. "The menu state should be restored to what it was before navigating away."
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: How can we reproduce it?
+      description: A minimal code snippet or steps that reliably trigger the issue. The smaller the better.
+      render: typescript
+    validations:
+      required: false
+
+  - type: input
+    id: version
+    attributes:
+      label: FlowCord version
+      placeholder: e.g. 0.1.0-alpha.0
+    validations:
+      required: true
+
+  - type: textarea
+    id: media
+    attributes:
+      label: Screenshots or recordings
+      description: If it helps illustrate the issue, drag and drop images or videos here.
+    validations:
+      required: false
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Anything else?
+      description: discord.js version, Node version, screenshots, recordings, or anything else that might be relevant. You can drag and drop images and videos directly into this field.
+    validations:
+      required: false
