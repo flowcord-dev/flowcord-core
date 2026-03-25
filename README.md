@@ -59,11 +59,15 @@ FlowCord replaces the boilerplate of managing component collectors, interaction 
 
 ## Installation
 
+> **This package is currently in alpha.** The API may change between releases.
+
 ```bash
-npm install @flowcord/core discord.js
+npm install @flowcord/core@next discord.js
 ```
 
 > **Peer dependency**: FlowCord requires **discord.js v14.x** or later.
+
+Once a stable release is published, the `@next` tag will no longer be needed.
 
 ---
 
