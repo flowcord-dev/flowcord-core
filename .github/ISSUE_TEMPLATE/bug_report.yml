@@ -43,14 +43,6 @@ body:
       required: true
 
   - type: textarea
-    id: media
-    attributes:
-      label: Screenshots or recordings
-      description: If it helps illustrate the issue, drag and drop images or videos here.
-    validations:
-      required: false
-
-  - type: textarea
     id: context
     attributes:
       label: Anything else?
