@@ -95,6 +95,7 @@ export type { NavigationEvent } from './tracing';
 // Types
 export type {
   Awaitable,
+  DeferOptions,
   RenderMode,
   RenderOutput,
   EmbedsRenderOutput,

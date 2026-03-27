@@ -10,6 +10,7 @@ import type { MenuDefinition } from '../registry/MenuRegistry';
 import type {
   Action,
   ButtonConfig,
+  DeferOptions,
   ModalConfig,
   PaginationState,
   SelectAction,
@@ -28,6 +29,9 @@ export class MenuInstance<
 
   /** Map of component ID → action for routing interactions */
   private readonly _actionMap = new Map<string, Action>();
+
+  /** Map of component ID → button config (for defer resolution) */
+  private readonly _buttonConfigMap = new Map<string, ButtonConfig>();
 
   /** Component IDs that trigger a modal, mapped to their target modal ID */
   private readonly _modalButtonMap = new Map<string, string>();
@@ -128,6 +132,7 @@ export class MenuInstance<
   /** Clear all registered actions (called before each render cycle). */
   clearActions(): void {
     this._actionMap.clear();
+    this._buttonConfigMap.clear();
     this._modalButtonMap.clear();
     this._modalMap.clear();
     this._activeSelect = null;
@@ -147,6 +152,9 @@ export class MenuInstance<
       const btn = buttons[i];
       const id = btn.id ?? `__btn_${i}`;
       btn.id = id; // Assign stable ID so serialization matches registration
+
+      // Store button config for defer resolution
+      this._buttonConfigMap.set(id, btn);
 
       // Link buttons are handled natively by Discord — skip registration entirely.
       if (this.isLinkButton(btn)) {
@@ -225,6 +233,37 @@ export class MenuInstance<
     return this._modalButtonMap.get(componentId);
   }
 
+  /**
+   * Resolve defer configuration for a component.
+   * Priority: component defer config → menu defaultDefer → undefined
+   */
+  resolveDeferConfig(componentId: string): DeferOptions | undefined {
+    // Check component-level defer config
+    const btn = this.findButtonById(componentId);
+    if (btn?.defer !== undefined) {
+      if (typeof btn.defer === 'boolean') {
+        return { defer: btn.defer };
+      }
+      return btn.defer;
+    }
+
+    // Check select menu defer config
+    const select = this._activeSelect;
+    if (select?.id === componentId && select.defer !== undefined) {
+      if (typeof select.defer === 'boolean') {
+        return { defer: select.defer };
+      }
+      return select.defer;
+    }
+
+    // Fall back to menu default
+    return this.definition.defaultDefer;
+  }
+
+  private findButtonById(componentId: string): ButtonConfig | undefined {
+    return this._buttonConfigMap.get(componentId);
+  }
+
   /** Register actions from layout component tree (recursive). */
   registerLayoutActions(
     components: readonly (
@@ -238,6 +277,9 @@ export class MenuInstance<
         const btn = component as ButtonConfig;
         const id = btn.id ?? `__btn_${this._actionMap.size}`;
         btn.id = id; // Assign stable ID so serialization matches registration
+
+        // Store button config for defer resolution
+        this._buttonConfigMap.set(id, btn);
 
         if (this.isLinkButton(btn)) {
           this.validateButton(btn);
@@ -279,6 +321,9 @@ export class MenuInstance<
           const acc = section.accessory;
           const id = acc.id ?? `__btn_${this._actionMap.size}`;
           acc.id = id;
+
+          // Store button config for defer resolution
+          this._buttonConfigMap.set(id, acc);
 
           if (this.isLinkButton(acc)) {
             this.validateButton(acc);

@@ -8,6 +8,7 @@ import type {
   Awaitable,
   ButtonConfig,
   ComponentConfig,
+  DeferOptions,
   ListPaginationOptions,
   ModalConfig,
   SelectConfig,
@@ -40,6 +41,14 @@ export interface MenuDefinition<TCtx = MenuContext> {
   fallbackMenu?: string;
   fallbackMenuOptions?: Record<string, unknown>;
   contextExtensions: Array<(baseCtx: MenuContext) => Record<string, unknown>>;
+  /**
+   * Default deferral configuration for all components in this menu.
+   * Components can override this with their own `defer` option.
+   * - `{ defer: true }` — defer all component interactions by default
+   * - `{ defer: true, ephemeral: true }` — defer with ephemeral response
+   * - `undefined` — no defer by default (new behavior)
+   */
+  defaultDefer?: DeferOptions;
 }
 
 /**

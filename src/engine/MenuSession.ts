@@ -20,7 +20,7 @@ import type {
   MenuSessionLike,
   SubMenuOptions,
 } from '../context/MenuContext';
-import type { Action } from '../types/common';
+import type { Action, DeferOptions } from '../types/common';
 import { GuardFailedError } from '../action/pipeline';
 import { StateStore } from '../state/StateStore';
 import { MenuStack } from '../state/MenuStack';
@@ -819,13 +819,19 @@ export class MenuSession implements MenuSessionLike {
 
     // Determine if this button is a declarative modal trigger (opensModal).
     // Modal triggers must NOT be deferred — showModal() requires a raw interaction.
-    // All other component interactions are auto-deferred so consumer actions
-    // never need to worry about Discord's 3-second acknowledgement deadline.
     const isModalButton = this._currentMenu.isModalButton(componentId);
 
+    // Resolve defer configuration: component -> menu default -> none
     if (!isModalButton && !interaction.deferred && !interaction.replied) {
-      await interaction.deferUpdate();
-      this._renderer['_lastComponentInteraction'] = null;
+      const deferConfig = this.resolveDeferConfig(componentId);
+      if (deferConfig?.defer) {
+        if (deferConfig.ephemeral) {
+          await interaction.deferReply({ ephemeral: true });
+        } else {
+          await interaction.deferUpdate();
+        }
+        this._renderer['_lastComponentInteraction'] = null;
+      }
     }
 
     // --- Reserved button handling ---
@@ -960,6 +966,15 @@ export class MenuSession implements MenuSessionLike {
 
     const ctx = this.buildContext(this._currentMenu);
     await modalConfig.onSubmit(ctx, interaction.fields);
+  }
+
+  /**
+   * Resolve defer configuration for a component.
+   * Priority: component defer config → menu defaultDefer → undefined
+   */
+  private resolveDeferConfig(componentId: string): DeferOptions | undefined {
+    if (!this._currentMenu) return undefined;
+    return this._currentMenu.resolveDeferConfig(componentId);
   }
 
   /**
