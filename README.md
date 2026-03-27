@@ -372,6 +372,7 @@ Buttons are the primary interactive element. Each button has a label, style, and
 | `label` | `string` | Button text |
 | `style` | `ButtonStyle` | Discord button style (Primary, Secondary, Success, Danger) |
 | `action` | `Action` | Callback when clicked |
+| `defer` | `DeferOptions \| boolean?` | Defer the interaction (or `{ defer: true, ephemeral: true }`) |
 | `id` | `string?` | Optional custom ID |
 | `disabled` | `boolean?` | Disable the button |
 | `emoji` | `string?` | Emoji to display |
@@ -629,6 +630,7 @@ const events = flowcord.tracer.events;
 | `.setPreserveStateOnReturn()`    | Any    | Restore previous menu state snapshot when returning via goBack |
 | `.setFallbackMenu(id, options?)` | Any    | Fallback for goBack on empty stack                             |
 | `.setListPagination(options)`    | Any    | Configure list pagination                                      |
+| `.setDefaultDefer(options)`      | Any    | Default defer config for all components                       |
 | `.onEnter(fn)`                   | Any    | Hook: menu entered                                             |
 | `.onLeave(fn)`                   | Any    | Hook: menu leaving                                             |
 | `.onCancel(fn)`                  | Any    | Hook: session cancelled                                        |
@@ -666,6 +668,18 @@ The [`examples/`](./examples/) directory contains runnable examples demonstratin
 | [`04-sub-menu-continuation.ts`](./examples/04-sub-menu-continuation.ts) | Parent–child menu pattern with result passing                   |
 | [`05-selects-and-modals.ts`](./examples/05-selects-and-modals.ts)       | Select menus and modal forms                                    |
 | [`06-pagination-and-guards.ts`](./examples/06-pagination-and-guards.ts) | Button pagination, list pagination, and guard pipelines         |
+
+**Run an example:**
+
+```bash
+# Set your bot token
+export DISCORD_BOT_TOKEN=your_token_here
+
+# Run a specific example
+npm run example 01-quickstart.ts
+```
+
+**Register slash commands:** Most examples require registering a slash command with Discord first. Uncomment the registration section at the bottom of the example file and run it once.
 
 ---
 
