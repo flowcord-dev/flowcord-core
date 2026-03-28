@@ -75,6 +75,9 @@ export class MenuRenderer {
   /** The last component interaction received — used for .update() */
   private _lastComponentInteraction: MessageComponentInteraction | null = null;
 
+  /** Whether the initial deferReply was ephemeral (requires editReply, not component.update) */
+  private _wasEphemeralInitial = false;
+
   /** Whether we need to use followUp instead of editReply (after message collection) */
   private _isReset = false;
 
@@ -103,7 +106,8 @@ export class MenuRenderer {
   async render(
     menuInstance: MenuInstance,
     ctx: MenuContext,
-    commandInteraction: ChatInputCommandInteraction
+    commandInteraction: ChatInputCommandInteraction,
+    isFirstRender = false
   ): Promise<void> {
     const definition = menuInstance.definition;
     const newMode = definition.mode;
@@ -120,14 +124,15 @@ export class MenuRenderer {
     }
 
     // Send or update the message based on current state
-    await this.sendPayload(payload, newMode, commandInteraction);
+    await this.sendPayload(payload, newMode, commandInteraction, isFirstRender, ctx.session.ephemeral);
   }
 
   /**
    * Send the cancel state — clear components and show cancellation message.
    */
   async renderCancelled(
-    commandInteraction: ChatInputCommandInteraction
+    commandInteraction: ChatInputCommandInteraction,
+    ephemeral = false
   ): Promise<void> {
     const payload: Record<string, unknown> = {
       content: '*Command Cancelled*',
@@ -136,13 +141,7 @@ export class MenuRenderer {
     };
 
     try {
-      if (this._lastComponentInteraction && !this._isReset) {
-        await this._lastComponentInteraction.update(payload);
-      } else if (this._activeMessage) {
-        await this._activeMessage.edit(payload);
-      } else {
-        await commandInteraction.editReply(payload);
-      }
+      await commandInteraction.editReply(payload);
     } catch {
       // Best-effort cleanup — interaction may have expired
     }
@@ -152,20 +151,15 @@ export class MenuRenderer {
    * Send the close state — remove components from the message.
    */
   async renderClosed(
-    commandInteraction: ChatInputCommandInteraction
+    commandInteraction: ChatInputCommandInteraction,
+    ephemeral = false
   ): Promise<void> {
     const payload: Record<string, unknown> = {
       components: [],
     };
 
     try {
-      if (this._lastComponentInteraction && !this._isReset) {
-        await this._lastComponentInteraction.update(payload);
-      } else if (this._activeMessage) {
-        await this._activeMessage.edit(payload);
-      } else {
-        await commandInteraction.editReply(payload);
-      }
+      await commandInteraction.editReply(payload);
     } catch {
       // Best-effort cleanup
     }
@@ -434,7 +428,9 @@ export class MenuRenderer {
   private async sendPayload(
     payload: RenderPayload,
     newMode: RenderMode,
-    commandInteraction: ChatInputCommandInteraction
+    commandInteraction: ChatInputCommandInteraction,
+    isFirstRender = false,
+    ephemeral = false
   ): Promise<void> {
     const modeChanged =
       this._activeMessageMode !== null && this._activeMessageMode !== newMode;
@@ -453,20 +449,25 @@ export class MenuRenderer {
       this._activeMessage = newMessage as Message;
       this._isReset = false;
       this._lastUpdateSource = 'followUp';
-    } else if (this._lastComponentInteraction) {
-      // We have a component interaction to update
-      await this._lastComponentInteraction.update(discordPayload);
-      this._lastComponentInteraction = null;
-      this._lastUpdateSource = 'component';
     } else if (this._activeMessage) {
-      // Existing message — edit it
-      await this._activeMessage.edit(discordPayload);
+      // Has existing message - use commandInteraction.editReply which works
+      // for both ephemeral and non-ephemeral original replies
+      await commandInteraction.editReply(discordPayload);
       this._lastUpdateSource = 'editReply';
     } else {
-      // First render — editReply on the deferred reply
+      // First render — deferReply (with ephemeral if set), then editReply
+      if (isFirstRender) {
+        await commandInteraction.deferReply({ ephemeral });
+        this._wasEphemeralInitial = ephemeral;
+      }
       const message = await commandInteraction.editReply(discordPayload);
       this._activeMessage = message as Message;
       this._lastUpdateSource = 'editReply';
+    }
+
+    // Clear lastComponentInteraction after render if ephemeral (can't use component.update)
+    if (this._wasEphemeralInitial) {
+      this._lastComponentInteraction = null;
     }
 
     this._activeMessageMode = newMode;
