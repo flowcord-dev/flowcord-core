@@ -60,8 +60,17 @@ jobs:
       - name: Publish to npm
         run: npm publish --provenance --tag ${{ steps.dist_tag.outputs.tag }}
 
+      - name: Extract changelog notes
+        id: changelog
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          NOTES=$(awk "/^## \[$VERSION\]/{found=1; next} /^## \[/{if(found) exit} found{print}" CHANGELOG.md)
+          echo "notes<<EOF" >> $GITHUB_OUTPUT
+          echo "$NOTES" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           prerelease: ${{ steps.dist_tag.outputs.prerelease == 'true' }}
-          generate_release_notes: true
+          body: ${{ steps.changelog.outputs.notes }}
