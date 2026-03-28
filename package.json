@@ -30,11 +30,11 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/flowcord-dev/flowcord-js.git"
+    "url": "git+https://github.com/flowcord-dev/flowcord-core.git"
   },
-  "homepage": "https://github.com/flowcord-dev/flowcord-js#readme",
+  "homepage": "https://github.com/flowcord-dev/flowcord-core#readme",
   "bugs": {
-    "url": "https://github.com/flowcord-dev/flowcord-js/issues"
+    "url": "https://github.com/flowcord-dev/flowcord-core/issues"
   },
   "author": "Nicholas Bely",
   "keywords": ["discord", "discord.js", "menu", "interaction", "framework", "flowcord"],
