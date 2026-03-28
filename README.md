@@ -678,6 +678,8 @@ export DISCORD_BOT_TOKEN=your_token_here
 npm run example 01-quickstart.ts
 ```
 
+**Register slash commands:** Most examples require registering a slash command with Discord first. Uncomment the registration section at the bottom of the example file and run it once.
+
 ---
 
 ## Architecture
