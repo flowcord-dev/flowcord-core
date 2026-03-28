@@ -29,7 +29,6 @@ import type {
   ButtonConfig,
   ButtonInputConfig,
   ComponentConfig,
-  DeferOptions,
   ListPaginationOptions,
   ModalConfig,
   SelectConfig,
@@ -79,7 +78,7 @@ export class MenuBuilder<
   protected _preserveStateOnReturn = false;
   protected _fallbackMenu?: string;
   protected _fallbackMenuOptions?: Record<string, unknown>;
-  protected _defaultDefer?: DeferOptions;
+  protected _ephemeral?: boolean;
 
   // Context extensions
   protected readonly _contextExtensions: Array<
@@ -245,19 +244,15 @@ export class MenuBuilder<
   }
 
   /**
-   * Set the default deferral configuration for all components in this menu.
-   * Components can override this with their own `defer` option.
+   * Set the default ephemeral option for deferred replies in this menu.
+   * When true, deferred component interactions will be ephemeral (only visible to the user).
    *
    * @example
-   * // Defer all component interactions by default
-   * .setDefaultDefer({ defer: true })
-   *
-   * @example
-   * // Defer with ephemeral response
-   * .setDefaultDefer({ defer: true, ephemeral: true })
+   * // Make all deferred replies ephemeral
+   * .setEphemeral(true)
    */
-  setDefaultDefer(opts: DeferOptions): this {
-    this._defaultDefer = opts;
+  setEphemeral(ephemeral: boolean): this {
+    this._ephemeral = ephemeral;
     return this;
   }
 
@@ -341,7 +336,7 @@ export class MenuBuilder<
     if (def.options?.cancellable) this._isCancellable = true;
     if (def.options?.returnable) this._isReturnable = true;
     if (def.options?.trackInHistory) this._isTrackedInHistory = true;
-    if (def.options?.defaultDefer) this._defaultDefer = def.options.defaultDefer;
+    if (def.options?.ephemeral) this._ephemeral = def.options.ephemeral;
     if (def.hooks) {
       for (const [name, fn] of Object.entries(def.hooks)) {
         if (fn) {
@@ -422,7 +417,7 @@ export class MenuBuilder<
       preserveStateOnReturn: this._preserveStateOnReturn,
       fallbackMenu: this._fallbackMenu,
       fallbackMenuOptions: this._fallbackMenuOptions,
-      defaultDefer: this._defaultDefer,
+      ephemeral: this._ephemeral,
       contextExtensions: [...this._contextExtensions],
     };
   }
@@ -445,7 +440,7 @@ export interface MenuDefinitionLiteral<TCtx = MenuContext> {
     cancellable?: boolean;
     returnable?: boolean;
     trackInHistory?: boolean;
-    defaultDefer?: DeferOptions;
+    ephemeral?: boolean;
   };
 }
 

@@ -10,7 +10,6 @@ import type { MenuDefinition } from '../registry/MenuRegistry';
 import type {
   Action,
   ButtonConfig,
-  DeferOptions,
   ModalConfig,
   PaginationState,
   SelectAction,
@@ -234,34 +233,11 @@ export class MenuInstance<
   }
 
   /**
-   * Resolve defer configuration for a component.
-   * Priority: component defer config → menu defaultDefer → undefined
+   * Resolve ephemeral setting for a component.
+   * Returns the menu's ephemeral setting.
    */
-  resolveDeferConfig(componentId: string): DeferOptions | undefined {
-    // Check component-level defer config
-    const btn = this.findButtonById(componentId);
-    if (btn?.defer !== undefined) {
-      if (typeof btn.defer === 'boolean') {
-        return { defer: btn.defer };
-      }
-      return btn.defer;
-    }
-
-    // Check select menu defer config
-    const select = this._activeSelect;
-    if (select?.id === componentId && select.defer !== undefined) {
-      if (typeof select.defer === 'boolean') {
-        return { defer: select.defer };
-      }
-      return select.defer;
-    }
-
-    // Fall back to menu default
-    return this.definition.defaultDefer;
-  }
-
-  private findButtonById(componentId: string): ButtonConfig | undefined {
-    return this._buttonConfigMap.get(componentId);
+  resolveEphemeral(): boolean | undefined {
+    return this.definition.ephemeral;
   }
 
   /** Register actions from layout component tree (recursive). */
