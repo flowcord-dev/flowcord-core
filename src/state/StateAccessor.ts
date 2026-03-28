@@ -39,4 +39,9 @@ export class StateAccessor<
   reset(newState: TState): void {
     this._data = { ...newState };
   }
+
+  /** Clear all state properties. */
+  clear(): void {
+    this._data = {} as TState;
+  }
 }

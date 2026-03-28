@@ -94,6 +94,7 @@ export interface MenuSessionLike {
   readonly isCancelled: boolean;
   readonly isCompleted: boolean;
   readonly canGoBack: boolean;
+  readonly ephemeral: boolean;
 }
 
 /**
