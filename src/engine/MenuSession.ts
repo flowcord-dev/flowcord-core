@@ -20,7 +20,7 @@ import type {
   MenuSessionLike,
   SubMenuOptions,
 } from '../context/MenuContext';
-import type { Action, DeferOptions } from '../types/common';
+import type { Action } from '../types/common';
 import { GuardFailedError } from '../action/pipeline';
 import { StateStore } from '../state/StateStore';
 import { MenuStack } from '../state/MenuStack';
@@ -85,6 +85,12 @@ export class MenuSession implements MenuSessionLike {
   /** The most recent interaction (updated on every component/modal interaction). */
   private _latestInteraction: Interaction;
 
+  /** Ephemeral setting from the current menu (set during navigation). */
+  private _ephemeral = false;
+
+  /** Whether this is the first render of the session. */
+  private _isFirstRender = true;
+
   constructor(engine: MenuEngine, interaction: ChatInputCommandInteraction) {
     this.id = randomUUID().slice(0, 12);
     this.sessionState = new StateStore();
@@ -120,6 +126,11 @@ export class MenuSession implements MenuSessionLike {
     return !this._stack.isEmpty || !!this._currentMenu?.definition.fallbackMenu;
   }
 
+  /** Whether ephemeral mode is enabled for the current menu. */
+  get ephemeral(): boolean {
+    return this._ephemeral;
+  }
+
   // -----------------------------------------------------------------------
   // Public lifecycle API
   // -----------------------------------------------------------------------
@@ -131,11 +142,10 @@ export class MenuSession implements MenuSessionLike {
     menuName: string,
     options?: Record<string, unknown>
   ): Promise<void> {
-    await this._commandInteraction.deferReply();
     await this.navigateTo(menuName, options);
     await this.processMenus();
 
-    // Clean up after loop exits
+    // Clean up after session ends
     this._engine.removeSession(this.id);
   }
 
@@ -197,6 +207,9 @@ export class MenuSession implements MenuSessionLike {
     const definition = await factory(this, options);
     const instance = new MenuInstance(definition, this.id);
     this._currentMenu = instance;
+
+    // Store ephemeral setting for initial deferReply
+    this._ephemeral = definition.ephemeral ?? false;
 
     // Run setup if defined
     if (definition.setup) {
@@ -499,8 +512,10 @@ export class MenuSession implements MenuSessionLike {
     await this._renderer.render(
       this._currentMenu,
       ctx,
-      this._commandInteraction
+      this._commandInteraction,
+      this._isFirstRender
     );
+    this._isFirstRender = false;
 
     // afterRender hook
     await this._lifecycleManager.emit(
@@ -821,17 +836,12 @@ export class MenuSession implements MenuSessionLike {
     // Modal triggers must NOT be deferred — showModal() requires a raw interaction.
     const isModalButton = this._currentMenu.isModalButton(componentId);
 
-    // Resolve defer configuration: component -> menu default -> none
+    // Always defer non-modal component interactions using deferUpdate()
+    // This updates the original message - never create new messages via deferReply
     if (!isModalButton && !interaction.deferred && !interaction.replied) {
-      const deferConfig = this.resolveDeferConfig(componentId);
-      if (deferConfig?.defer) {
-        if (deferConfig.ephemeral) {
-          await interaction.deferReply({ ephemeral: true });
-        } else {
-          await interaction.deferUpdate();
-        }
-        this._renderer['_lastComponentInteraction'] = null;
-      }
+      await interaction.deferUpdate();
+      // Store the interaction so renderer can use update() on it
+      this._renderer.setLastComponentInteraction(interaction);
     }
 
     // --- Reserved button handling ---
@@ -966,15 +976,6 @@ export class MenuSession implements MenuSessionLike {
 
     const ctx = this.buildContext(this._currentMenu);
     await modalConfig.onSubmit(ctx, interaction.fields);
-  }
-
-  /**
-   * Resolve defer configuration for a component.
-   * Priority: component defer config → menu defaultDefer → undefined
-   */
-  private resolveDeferConfig(componentId: string): DeferOptions | undefined {
-    if (!this._currentMenu) return undefined;
-    return this._currentMenu.resolveDeferConfig(componentId);
   }
 
   /**
