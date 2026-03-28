@@ -372,7 +372,6 @@ Buttons are the primary interactive element. Each button has a label, style, and
 | `label` | `string` | Button text |
 | `style` | `ButtonStyle` | Discord button style (Primary, Secondary, Success, Danger) |
 | `action` | `Action` | Callback when clicked |
-| `defer` | `DeferOptions \| boolean?` | Defer the interaction (or `{ defer: true, ephemeral: true }`) |
 | `id` | `string?` | Optional custom ID |
 | `disabled` | `boolean?` | Disable the button |
 | `emoji` | `string?` | Emoji to display |
@@ -630,7 +629,7 @@ const events = flowcord.tracer.events;
 | `.setPreserveStateOnReturn()`    | Any    | Restore previous menu state snapshot when returning via goBack |
 | `.setFallbackMenu(id, options?)` | Any    | Fallback for goBack on empty stack                             |
 | `.setListPagination(options)`    | Any    | Configure list pagination                                      |
-| `.setDefaultDefer(options)`      | Any    | Default defer config for all components                       |
+| `.setEphemeral(ephemeral)`       | Any    | Make deferred replies ephemeral (visible only to user)        |
 | `.onEnter(fn)`                   | Any    | Hook: menu entered                                             |
 | `.onLeave(fn)`                   | Any    | Hook: menu leaving                                             |
 | `.onCancel(fn)`                  | Any    | Hook: session cancelled                                        |
