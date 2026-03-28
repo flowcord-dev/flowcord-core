@@ -139,11 +139,6 @@ flowcord.registerMenu('workout', (session) =>
         action: goTo('exercise-picker'),
       },
       {
-        label: '🔄 Defer Demo',
-        style: ButtonStyle.Primary,
-        action: goTo('defer-demo'),
-      },
-      {
         label: '🗑️ Clear Log',
         style: ButtonStyle.Danger,
         action: async (ctx) => {
@@ -164,58 +159,8 @@ flowcord.registerMenu('workout', (session) =>
 );
 
 // ---------------------------------------------------------------------------
-// Menu 3: Defer Demo Menu
+// Menu 2: Exercise Picker
 // ---------------------------------------------------------------------------
-flowcord.registerMenu('defer-demo', (session) =>
-  new MenuBuilder(session, 'defer-demo')
-    // Enable defer by default for this menu
-    .setDefaultDefer({ defer: true })
-    .setEmbeds(() => [
-      new EmbedBuilder()
-        .setTitle('🔄 Defer Options Demo')
-        .setDescription(
-          'This menu demonstrates the defer feature:\n\n' +
-            '**1. Deferred Button** (default) — Uses menu-level defaultDefer\n' +
-            '**2. Non-deferred Button** — Overrides to false\n' +
-            '**3. Ephemeral Deferred** — Deferred with ephemeral: true\n\n' +
-            'Check Discord developer mode to see the interaction responses.'
-        )
-        .setColor(0x9b59b6),
-    ])
-    .setButtons(() => [
-      {
-        label: '🔄 Deferred (default)',
-        style: ButtonStyle.Primary,
-        action: async (ctx) => {
-          ctx.state.set('lastAction', 'Deferred button clicked');
-        },
-        // No defer option = uses menu's defaultDefer
-      },
-      {
-        label: '⚡ Not Deferred',
-        style: ButtonStyle.Secondary,
-        action: async (ctx) => {
-          ctx.state.set('lastAction', 'Non-deferred button clicked');
-        },
-        defer: false, // Override to disable defer
-      },
-      {
-        label: '🔒 Deferred + Ephemeral',
-        style: ButtonStyle.Success,
-        action: async (ctx) => {
-          ctx.state.set('lastAction', 'Ephemeral deferred button clicked');
-        },
-        defer: { defer: true, ephemeral: true },
-      },
-      {
-        label: '🔙 Back',
-        style: ButtonStyle.Danger,
-        action: goTo('workout'),
-      },
-    ])
-    .setReturnable()
-    .build()
-);
 flowcord.registerMenu('exercise-picker', (session) =>
   new MenuBuilder<ExerciseMenuState>(session, 'exercise-picker')
     .setup((ctx) => {

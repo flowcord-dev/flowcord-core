@@ -85,11 +85,33 @@ flowcord.registerMenu('weather', (session) =>
     .build()
 );
 
+// --- Register ephemeral menu ---
+flowcord.registerMenu('secret-weather', (session) =>
+  new MenuBuilder(session, 'secret-weather')
+    .setEmbeds(() => [
+      new EmbedBuilder()
+        .setTitle('🤫 Secret Weather Report')
+        .setDescription('This message is only visible to you!')
+        .setColor(0x9b59b6),
+    ])
+    .setButtons(() => [
+      {
+        label: 'Close',
+        style: ButtonStyle.Secondary,
+        action: closeMenu(),
+      },
+    ])
+    .setEphemeral(true) // Message only visible to user
+    .build()
+);
+
 // --- Interaction handler ---
 client.on('interactionCreate', async (interaction) => {
   if (interaction.isChatInputCommand()) {
     if (interaction.commandName === 'weather') {
       await flowcord.handleInteraction(interaction, 'weather');
+    } else if (interaction.commandName === 'secret-weather') {
+      await flowcord.handleInteraction(interaction, 'secret-weather');
     }
   } else if (interaction.isMessageComponent()) {
     flowcord.routeComponentInteraction(interaction);
