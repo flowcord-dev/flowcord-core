@@ -668,18 +668,6 @@ The [`examples/`](./examples/) directory contains runnable examples demonstratin
 | [`05-selects-and-modals.ts`](./examples/05-selects-and-modals.ts)       | Select menus and modal forms                                    |
 | [`06-pagination-and-guards.ts`](./examples/06-pagination-and-guards.ts) | Button pagination, list pagination, and guard pipelines         |
 
-**Run an example:**
-
-```bash
-# Set your bot token
-export DISCORD_BOT_TOKEN=your_token_here
-
-# Run a specific example
-npm run example 01-quickstart.ts
-```
-
-**Register slash commands:** Most examples require registering a slash command with Discord first. Uncomment the registration section at the bottom of the example file and run it once.
-
 ---
 
 ## Architecture
