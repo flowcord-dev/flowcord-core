@@ -8,6 +8,7 @@ import {
   type ChatInputCommandInteraction,
   EmbedBuilder,
   type MessageComponentInteraction,
+  MessageFlags,
 } from 'discord.js';
 import type { FlowCordClient } from '../FlowCordClient';
 import type { CreateMenuDefinitionFn } from '../registry/MenuRegistry';
@@ -72,7 +73,7 @@ const defaultOnError = async (
     await interaction.reply({
       embeds: [errorEmbed],
       components: [],
-      ephemeral: true,
+      flags: MessageFlags.Ephemeral,
     });
   } catch (discordError) {
     console.error('[FlowCord] Failed to send error response:', discordError);

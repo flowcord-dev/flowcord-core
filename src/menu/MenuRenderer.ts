@@ -457,7 +457,11 @@ export class MenuRenderer {
     } else {
       // First render — deferReply (with ephemeral if set), then editReply
       if (isFirstRender) {
-        await commandInteraction.deferReply({ ephemeral });
+        if (ephemeral) {
+          await commandInteraction.deferReply({ flags: MessageFlags.Ephemeral });
+        } else {
+          await commandInteraction.deferReply();
+        }
         this._wasEphemeralInitial = ephemeral;
       }
       const message = await commandInteraction.editReply(discordPayload);
