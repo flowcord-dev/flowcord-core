@@ -118,13 +118,6 @@ export interface FileConfig {
   spoiler?: boolean;
 }
 
-// --- Defer Options ---
-
-export interface DeferOptions {
-  defer?: boolean;
-  ephemeral?: boolean;
-}
-
 // --- Interactive Components (shared across modes) ---
 
 export interface ActionRowConfig<TCtx = MenuContextLike> {
@@ -140,13 +133,6 @@ export interface ButtonConfig<TCtx = MenuContextLike> {
   disabled?: boolean;
   emoji?: string;
   action?: Action<TCtx>;
-  /**
-   * Deferral configuration for this button.
-   * - `true` or `{ defer: true }` — defer the interaction
-   * - `{ defer: true, ephemeral: true }` — defer with ephemeral response
-   * - `undefined` — uses menu's defaultDefer, or no defer (default)
-   */
-  defer?: DeferOptions | boolean;
   /**
    * Marks this button as a modal trigger. When clicked, the framework will
    * show the menu's modal instead of deferring the interaction.
@@ -183,13 +169,6 @@ export interface SelectConfig<TCtx = MenuContextLike> {
   builder: AnySelectMenuBuilder;
   id?: string;
   onSelect?: SelectAction<TCtx>;
-  /**
-   * Deferral configuration for this select menu.
-   * - `true` or `{ defer: true }` — defer the interaction
-   * - `{ defer: true, ephemeral: true }` — defer with ephemeral response
-   * - `undefined` — uses menu's defaultDefer, or no defer (default)
-   */
-  defer?: DeferOptions | boolean;
 }
 
 /**
