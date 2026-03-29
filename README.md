@@ -711,7 +711,7 @@ On startup the bot registers all slash commands (guild-scoped if `DEV_GUILD_ID` 
 
 | Command | Example |
 | --- | --- |
-| `/weather`, `/secret-weather` | 01 — Quick Start |
+| `/weather` | 01 — Quick Start |
 | `/cookbook` | 02 — Multi-Menu Navigation |
 | `/workout` | 03 — State & Lifecycle |
 | `/party` | 04 — Sub-Menu Continuation |
