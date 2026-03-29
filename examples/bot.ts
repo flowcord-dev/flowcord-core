@@ -24,7 +24,8 @@
  */
 
 import { Client, GatewayIntentBits, REST, Routes } from 'discord.js';
-// Local dev (flowcord-core repo only): import { FlowCord } from '../src/index.ts';
+// Local dev (flowcord-core repo only):
+// import { FlowCord } from '../src/index.ts';
 import { FlowCord } from '@flowcord/core';
 
 import { register as registerQuickstart, commands as quickstartCommands } from './01-quickstart.ts';

@@ -15,7 +15,8 @@
  */
 
 import { EmbedBuilder, ButtonStyle, SlashCommandBuilder } from 'discord.js';
-// Local dev (flowcord-core repo only): import { type ButtonInputConfig, type FlowCord, MenuBuilder, closeMenu, goBack } from '../src/index.ts';
+// Local dev (flowcord-core repo only):
+// import { type ButtonInputConfig, type FlowCord, MenuBuilder, closeMenu, goBack } from '../src/index.ts';
 import {
   type ButtonInputConfig,
   type FlowCord,
