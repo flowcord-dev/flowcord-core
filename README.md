@@ -35,6 +35,7 @@ FlowCord replaces the boilerplate of managing component collectors, interaction 
   - [Navigation Tracing](#navigation-tracing)
 - [API Reference](#api-reference)
 - [Examples](#examples)
+- [Running the Examples Locally](#running-the-examples-locally)
 - [Architecture](#architecture)
 - [Contributing](#contributing)
 - [License](#license)
@@ -666,6 +667,66 @@ The [`examples/`](./examples/) directory contains runnable examples demonstratin
 | [`04-sub-menu-continuation.ts`](./examples/04-sub-menu-continuation.ts) | Parent–child menu pattern with result passing                   |
 | [`05-selects-and-modals.ts`](./examples/05-selects-and-modals.ts)       | Select menus and modal forms                                    |
 | [`06-pagination-and-guards.ts`](./examples/06-pagination-and-guards.ts) | Button pagination, list pagination, and guard pipelines         |
+
+---
+
+## Running the Examples Locally
+
+The examples share a single bot entry point ([`examples/bot.ts`](./examples/bot.ts)) that registers all menus, handles slash commands, and manages the interaction loop — mirroring how you'd structure a real multi-menu bot.
+
+**1. Clone the repo and install dependencies**
+
+```bash
+git clone https://github.com/flowcord-dev/flowcord-core.git
+cd flowcord-core
+npm install
+```
+
+**2. Create your `.env` file**
+
+```bash
+npm run flow:setup
+```
+
+This copies `.env.example` to `.env`. Open it and fill in your credentials:
+
+```env
+DISCORD_BOT_TOKEN=your-bot-token-here
+APP_ID=your-application-id-here
+
+# Recommended for development: slash commands register instantly to this guild
+# Leave blank to register globally (may take up to 1 hour to propagate)
+DEV_GUILD_ID=your-guild-id-here
+```
+
+**3. Start the bot**
+
+```bash
+npm run flow
+```
+
+On startup the bot registers all slash commands (guild-scoped if `DEV_GUILD_ID` is set, global otherwise), then comes online. All example commands will be available immediately.
+
+**Available commands**
+
+| Command | Example |
+| --- | --- |
+| `/weather`, `/secret-weather` | 01 — Quick Start |
+| `/cookbook` | 02 — Multi-Menu Navigation |
+| `/workout` | 03 — State & Lifecycle |
+| `/party` | 04 — Sub-Menu Continuation |
+| `/event` | 05 — Select Menus & Modals |
+| `/shop` | 06 — Pagination & Guards |
+
+**Working on the framework itself**
+
+Each example file imports from `@flowcord/core` by default. To run against your local source instead, uncomment the `../src/index.ts` line at the top of any example file (and comment out the `@flowcord/core` line):
+
+```ts
+// Uncomment for local dev:
+import { FlowCord, MenuBuilder, closeMenu } from '../src/index.ts';
+// import { FlowCord, MenuBuilder, closeMenu } from '@flowcord/core';
+```
 
 ---
 
