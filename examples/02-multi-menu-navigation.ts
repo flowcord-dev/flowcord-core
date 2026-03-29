@@ -15,7 +15,11 @@
  *   - setFallbackMenu() for menus that can be opened directly or navigated to
  */
 
-import { EmbedBuilder, ButtonStyle, SlashCommandBuilder } from 'discord.js';
+import {
+  EmbedBuilder,
+  ButtonStyle,
+  SlashCommandBuilder,
+} from 'discord.js';
 // Local dev (flowcord-core repo only):
 // import { type FlowCord, MenuBuilder, goTo } from '../src/index.ts';
 import { type FlowCord, MenuBuilder, goTo } from '@flowcord/core';
@@ -58,7 +62,8 @@ const recipes: Recipe[] = [
     id: 'sushi',
     name: 'California Roll',
     emoji: '🍣',
-    description: 'Inside-out sushi roll with crab, avocado, and cucumber.',
+    description:
+      'Inside-out sushi roll with crab, avocado, and cucumber.',
     cookTime: '30 minutes',
     ingredients: [
       'Sushi rice',
@@ -73,7 +78,8 @@ const recipes: Recipe[] = [
     id: 'tacos',
     name: 'Street Tacos',
     emoji: '🌮',
-    description: 'Authentic Mexican street tacos with fresh toppings.',
+    description:
+      'Authentic Mexican street tacos with fresh toppings.',
     cookTime: '20 minutes',
     ingredients: [
       'Corn tortillas',
@@ -100,7 +106,7 @@ export function register(flowcord: FlowCord): void {
             'Choose a recipe to view:\n\n' +
               recipes
                 .map((r, i) => `**${i + 1}.** ${r.emoji} ${r.name}`)
-                .join('\n')
+                .join('\n'),
           )
           .setColor(0xe67e22),
       ])
@@ -110,11 +116,11 @@ export function register(flowcord: FlowCord): void {
           style: ButtonStyle.Primary,
           // goTo() navigates to 'recipe-detail' and passes the recipe ID
           action: goTo('recipe-detail', { recipeId: recipe.id }),
-        }))
+        })),
       )
       .setCancellable()
       .setTrackedInHistory() // So 'recipe-detail' can goBack() here
-      .build()
+      .build(),
   );
 
   // ---------------------------------------------------------------------------
@@ -130,12 +136,16 @@ export function register(flowcord: FlowCord): void {
           .setTitle(`${recipe.emoji} ${recipe.name}`)
           .setDescription(recipe.description)
           .addFields(
-            { name: '⏱️ Cook Time', value: recipe.cookTime, inline: true },
+            {
+              name: '⏱️ Cook Time',
+              value: recipe.cookTime,
+              inline: true,
+            },
             {
               name: '🥘 Ingredients',
               value: `${recipe.ingredients.length} items`,
               inline: true,
-            }
+            },
           )
           .setColor(0x2ecc71),
       ])
@@ -174,10 +184,14 @@ export function register(flowcord: FlowCord): void {
           new EmbedBuilder()
             .setTitle(`📋 Ingredients — ${recipe.name}`)
             .setDescription(
-              recipe.ingredients.map((ing, i) => `${i + 1}. ${ing}`).join('\n')
+              recipe.ingredients
+                .map((ing, i) => `${i + 1}. ${ing}`)
+                .join('\n'),
             )
             .setColor(0x9b59b6)
-            .setFooter({ text: 'Press Back to return to the recipe' }),
+            .setFooter({
+              text: 'Press Back to return to the recipe',
+            }),
         ])
         // No buttons besides Back — just informational
         .setReturnable() // ← Back returns to recipe-detail

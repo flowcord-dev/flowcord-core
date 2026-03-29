@@ -28,12 +28,30 @@ import { Client, GatewayIntentBits, REST, Routes } from 'discord.js';
 // import { FlowCord } from '../src/index.ts';
 import { FlowCord } from '@flowcord/core';
 
-import { register as registerQuickstart, commands as quickstartCommands } from './01-quickstart.ts';
-import { register as registerCookbook, commands as cookbookCommands } from './02-multi-menu-navigation.ts';
-import { register as registerWorkout, commands as workoutCommands } from './03-state-and-lifecycle.ts';
-import { register as registerParty, commands as partyCommands } from './04-sub-menu-continuation.ts';
-import { register as registerEvent, commands as eventCommands } from './05-selects-and-modals.ts';
-import { register as registerShop, commands as shopCommands } from './06-pagination-and-guards.ts';
+import {
+  register as registerQuickstart,
+  commands as quickstartCommands,
+} from './01-quickstart.ts';
+import {
+  register as registerCookbook,
+  commands as cookbookCommands,
+} from './02-multi-menu-navigation.ts';
+import {
+  register as registerWorkout,
+  commands as workoutCommands,
+} from './03-state-and-lifecycle.ts';
+import {
+  register as registerParty,
+  commands as partyCommands,
+} from './04-sub-menu-continuation.ts';
+import {
+  register as registerEvent,
+  commands as eventCommands,
+} from './05-selects-and-modals.ts';
+import {
+  register as registerShop,
+  commands as shopCommands,
+} from './06-pagination-and-guards.ts';
 
 // --- Bot setup ---
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
@@ -71,10 +89,16 @@ client.once('clientReady', async () => {
     await rest.put(Routes.applicationGuildCommands(appId, guildId), {
       body: allCommands,
     });
-    console.log(`Slash commands registered to guild ${guildId} (instant).`);
+    console.log(
+      `Slash commands registered to guild ${guildId} (instant).`,
+    );
   } else {
-    await rest.put(Routes.applicationCommands(appId), { body: allCommands });
-    console.log('Slash commands registered globally (may take up to 1 hour to propagate).');
+    await rest.put(Routes.applicationCommands(appId), {
+      body: allCommands,
+    });
+    console.log(
+      'Slash commands registered globally (may take up to 1 hour to propagate).',
+    );
   }
 });
 
@@ -82,7 +106,10 @@ client.once('clientReady', async () => {
 // Menu names match command names, so commandName routes directly to the right menu.
 client.on('interactionCreate', async (interaction) => {
   if (interaction.isChatInputCommand()) {
-    await flowcord.handleInteraction(interaction, interaction.commandName);
+    await flowcord.handleInteraction(
+      interaction,
+      interaction.commandName,
+    );
   } else if (interaction.isMessageComponent()) {
     flowcord.routeComponentInteraction(interaction);
   }

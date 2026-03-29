@@ -16,10 +16,24 @@
  *   - onAction hook for tracking user interactions
  */
 
-import { EmbedBuilder, ButtonStyle, SlashCommandBuilder } from 'discord.js';
+import {
+  EmbedBuilder,
+  ButtonStyle,
+  SlashCommandBuilder,
+} from 'discord.js';
 // Local dev (flowcord-core repo only):
-// import { type FlowCord, MenuBuilder, goTo, closeMenu } from '../src/index.ts';
-import { type FlowCord, MenuBuilder, goTo, closeMenu } from '@flowcord/core';
+// import {
+//   type FlowCord,
+//   MenuBuilder,
+//   goTo,
+//   closeMenu,
+// } from '../src/index.ts';
+import {
+  type FlowCord,
+  MenuBuilder,
+  goTo,
+  closeMenu,
+} from '@flowcord/core';
 
 // --- Slash command definitions ---
 export const commands = [
@@ -68,8 +82,8 @@ export function register(flowcord: FlowCord): void {
           hour < 12
             ? '🌅 Good morning'
             : hour < 18
-            ? '☀️ Good afternoon'
-            : '🌙 Good evening';
+              ? '☀️ Good afternoon'
+              : '🌙 Good evening';
         ctx.state.set('greeting', greeting);
         ctx.state.set('viewCount', 0);
 
@@ -83,7 +97,9 @@ export function register(flowcord: FlowCord): void {
       .onEnter((ctx) => {
         const count = ctx.state.get('viewCount');
         ctx.state.set('viewCount', count + 1);
-        console.log(`[onEnter] Dashboard entered (view #${count + 1})`);
+        console.log(
+          `[onEnter] Dashboard entered (view #${count + 1})`,
+        );
       })
 
       // beforeRender fires before every render cycle
@@ -93,15 +109,18 @@ export function register(flowcord: FlowCord): void {
 
       // afterRender fires after the Discord message is sent/updated
       .afterRender((ctx) => {
-        const log = ctx.sessionState.get<Exercise[]>('workoutLog') ?? [];
+        const log =
+          ctx.sessionState.get<Exercise[]>('workoutLog') ?? [];
         console.log(
-          `[afterRender] Dashboard rendered. Total exercises logged: ${log.length}`
+          `[afterRender] Dashboard rendered. Total exercises logged: ${log.length}`,
         );
       })
 
       // onAction fires after any button action
       .onAction((ctx) => {
-        console.log(`[onAction] User performed an action on dashboard`);
+        console.log(
+          `[onAction] User performed an action on dashboard`,
+        );
       })
 
       .onCancel((ctx) => {
@@ -114,18 +133,23 @@ export function register(flowcord: FlowCord): void {
       })
 
       .setEmbeds((ctx) => {
-        const log = ctx.sessionState.get<Exercise[]>('workoutLog') ?? [];
+        const log =
+          ctx.sessionState.get<Exercise[]>('workoutLog') ?? [];
         const totalReps = log.reduce((sum, ex) => sum + ex.reps, 0);
 
         return [
           new EmbedBuilder()
-            .setTitle(`${ctx.state.get('greeting')}! 💪 Workout Dashboard`)
+            .setTitle(
+              `${ctx.state.get('greeting')}! 💪 Workout Dashboard`,
+            )
             .setDescription(
               log.length === 0
                 ? 'No exercises logged yet. Start your workout!'
                 : `**Exercises logged:** ${log.length}\n` +
                     `**Total reps:** ${totalReps}\n\n` +
-                    log.map((ex) => `• ${ex.name} — ${ex.reps} reps`).join('\n')
+                    log
+                      .map((ex) => `• ${ex.name} — ${ex.reps} reps`)
+                      .join('\n'),
             )
             .setColor(log.length >= 3 ? 0x2ecc71 : 0xe74c3c)
             .setFooter({
@@ -158,7 +182,7 @@ export function register(flowcord: FlowCord): void {
 
       .setCancellable()
       .setTrackedInHistory()
-      .build()
+      .build(),
   );
 
   // ---------------------------------------------------------------------------
@@ -179,8 +203,11 @@ export function register(flowcord: FlowCord): void {
           .setTitle('🏋️ Choose an Exercise')
           .setDescription(
             exerciseLibrary
-              .map((ex, i) => `**${i + 1}.** ${ex.name} (${ex.reps} reps)`)
-              .join('\n')
+              .map(
+                (ex, i) =>
+                  `**${i + 1}.** ${ex.name} (${ex.reps} reps)`,
+              )
+              .join('\n'),
           )
           .setColor(0x3498db),
       ])
@@ -191,7 +218,8 @@ export function register(flowcord: FlowCord): void {
           style: ButtonStyle.Primary,
           action: async (ctx) => {
             // Add exercise to the session-wide workout log
-            const log = ctx.sessionState.get<Exercise[]>('workoutLog') ?? [];
+            const log =
+              ctx.sessionState.get<Exercise[]>('workoutLog') ?? [];
             log.push({
               name: exercise.name,
               reps: exercise.reps,
@@ -202,10 +230,10 @@ export function register(flowcord: FlowCord): void {
             // Go back to dashboard — it will re-render with the updated log
             await ctx.goBack();
           },
-        }))
+        })),
       )
 
       .setReturnable()
-      .build()
+      .build(),
   );
 }

@@ -14,13 +14,23 @@
  *   - Multiple sub-menu invocations building up parent state over time
  */
 
-import { EmbedBuilder, ButtonStyle, SlashCommandBuilder } from 'discord.js';
-// Local dev (flowcord-core repo only):
-// import { type ButtonInputConfig, type FlowCord, MenuBuilder, closeMenu, goBack } from '../src/index.ts';
 import {
-  type ButtonInputConfig,
+  EmbedBuilder,
+  ButtonStyle,
+  SlashCommandBuilder,
+} from 'discord.js';
+// Local dev (flowcord-core repo only):
+// import {
+//   type FlowCord,
+//   MenuBuilder,
+//   MenuContext,
+//   closeMenu,
+//   goBack,
+// } from '../src/index.ts';
+import {
   type FlowCord,
   MenuBuilder,
+  MenuContext,
   closeMenu,
   goBack,
 } from '@flowcord/core';
@@ -71,7 +81,10 @@ export function register(flowcord: FlowCord): void {
       .setEmbeds((ctx) => {
         const members = ctx.state.get('members');
         const maxSize = ctx.state.get('maxSize');
-        const totalPower = members.reduce((sum, m) => sum + m.power, 0);
+        const totalPower = members.reduce(
+          (sum, m) => sum + m.power,
+          0,
+        );
 
         return [
           new EmbedBuilder()
@@ -85,10 +98,10 @@ export function register(flowcord: FlowCord): void {
                         (m, i) =>
                           `${i + 1}. ${m.emoji} **${m.name}** — ${m.role} (⚡ ${
                             m.power
-                          })`
+                          })`,
                       )
                       .join('\n') +
-                    `\n\n**Total Power:** ⚡ ${totalPower}`
+                    `\n\n**Total Power:** ⚡ ${totalPower}`,
             )
             .setColor(members.length >= maxSize ? 0x2ecc71 : 0xe67e22)
             .setFooter({
@@ -124,10 +137,12 @@ export function register(flowcord: FlowCord): void {
                   if (result) {
                     const recruited = result as Adventurer;
                     const updatedMembers = parentCtx.state.get(
-                      'members'
+                      'members',
                     ) as Adventurer[];
                     updatedMembers.push(recruited);
-                    parentCtx.state.set('members', [...updatedMembers]);
+                    parentCtx.state.set('members', [
+                      ...updatedMembers,
+                    ]);
                   }
                 },
               });
@@ -155,16 +170,17 @@ export function register(flowcord: FlowCord): void {
       .setCancellable()
       .setTrackedInHistory()
       .setPreserveStateOnReturn() // Ensure state is preserved when returning from the sub-menu
-      .build()
+      .build(),
   );
 
   // ---------------------------------------------------------------------------
   // Child Menu: Recruit an Adventurer
   // ---------------------------------------------------------------------------
   flowcord.registerMenu('recruit', (session, options) => {
-    const alreadyRecruited = (options?.alreadyRecruited as string[]) ?? [];
+    const alreadyRecruited =
+      (options?.alreadyRecruited as string[]) ?? [];
     const available = availableRecruits.filter(
-      (r) => !alreadyRecruited.includes(r.name)
+      (r) => !alreadyRecruited.includes(r.name),
     );
 
     return new MenuBuilder(session, 'recruit')
@@ -180,9 +196,9 @@ export function register(flowcord: FlowCord): void {
                       (r, i) =>
                         `**${i + 1}.** ${r.emoji} **${r.name}** — ${r.role} (⚡ ${
                           r.power
-                        })`
+                        })`,
                     )
-                    .join('\n')
+                    .join('\n'),
           )
           .setColor(0x9b59b6),
       ])
@@ -190,8 +206,8 @@ export function register(flowcord: FlowCord): void {
       .setButtons(() => [
         ...available.map((recruit, index) => ({
           label: `${index + 1}`,
-          style: ButtonStyle.Primary as ButtonStyle,
-          action: async (ctx): ButtonInputConfig => {
+          style: ButtonStyle.Primary,
+          action: async (ctx: MenuContext) => {
             // Complete the sub-menu and return the selected recruit to the parent
             await ctx.complete(recruit);
           },

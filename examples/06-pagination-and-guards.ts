@@ -15,7 +15,11 @@
  *   - onNext / onPrevious lifecycle hooks
  */
 
-import { EmbedBuilder, ButtonStyle, SlashCommandBuilder } from 'discord.js';
+import {
+  EmbedBuilder,
+  ButtonStyle,
+  SlashCommandBuilder,
+} from 'discord.js';
 // Local dev (flowcord-core repo only):
 // import { type FlowCord, MenuBuilder, type MenuContext, goTo, pipeline, guard } from '../src/index.ts';
 import {
@@ -31,7 +35,9 @@ import {
 export const commands = [
   new SlashCommandBuilder()
     .setName('shop')
-    .setDescription('Browse and purchase items from the adventurer shop')
+    .setDescription(
+      'Browse and purchase items from the adventurer shop',
+    )
     .toJSON(),
 ];
 
@@ -76,9 +82,27 @@ const shopInventory: ShopItem[] = [
     price: 200,
     rarity: 'common',
   },
-  { id: 'bow', name: 'Longbow', emoji: '🏹', price: 175, rarity: 'common' },
-  { id: 'staff', name: 'Oak Staff', emoji: '🪄', price: 180, rarity: 'common' },
-  { id: 'ring', name: 'Silver Ring', emoji: '💍', price: 300, rarity: 'rare' },
+  {
+    id: 'bow',
+    name: 'Longbow',
+    emoji: '🏹',
+    price: 175,
+    rarity: 'common',
+  },
+  {
+    id: 'staff',
+    name: 'Oak Staff',
+    emoji: '🪄',
+    price: 180,
+    rarity: 'common',
+  },
+  {
+    id: 'ring',
+    name: 'Silver Ring',
+    emoji: '💍',
+    price: 300,
+    rarity: 'rare',
+  },
   {
     id: 'cape',
     name: 'Enchanted Cape',
@@ -100,7 +124,13 @@ const shopInventory: ShopItem[] = [
     price: 500,
     rarity: 'rare',
   },
-  { id: 'helm', name: 'Mithril Helm', emoji: '⛑️', price: 450, rarity: 'rare' },
+  {
+    id: 'helm',
+    name: 'Mithril Helm',
+    emoji: '⛑️',
+    price: 450,
+    rarity: 'rare',
+  },
   {
     id: 'excalibur',
     name: 'Excalibur',
@@ -124,20 +154,30 @@ const shopInventory: ShopItem[] = [
   },
 ];
 
-const rarityColors = { common: 0x95a5a6, rare: 0x3498db, legendary: 0xe67e22 };
+const rarityColors = {
+  common: 0x95a5a6,
+  rare: 0x3498db,
+  legendary: 0xe67e22,
+};
 
 // --- Guards ---
 const requireGold = (item: ShopItem) =>
-  guard<MenuContext<Record<string, unknown>, ShopSessionState>>(async (ctx) => {
-    const gold = ctx.sessionState.get('gold') ?? 0;
-    return gold >= item.price;
-  }, `Not enough gold! You need ${item.price}g.`);
+  guard<MenuContext<Record<string, unknown>, ShopSessionState>>(
+    async (ctx) => {
+      const gold = ctx.sessionState.get('gold') ?? 0;
+      return gold >= item.price;
+    },
+    `Not enough gold! You need ${item.price}g.`,
+  );
 
 const requireNotOwned = (item: ShopItem) =>
-  guard<MenuContext<Record<string, unknown>, ShopSessionState>>(async (ctx) => {
-    const inventory = ctx.sessionState.get('inventory') ?? [];
-    return !inventory.includes(item.id);
-  }, `You already own ${item.name}!`);
+  guard<MenuContext<Record<string, unknown>, ShopSessionState>>(
+    async (ctx) => {
+      const inventory = ctx.sessionState.get('inventory') ?? [];
+      return !inventory.includes(item.id);
+    },
+    `You already own ${item.name}!`,
+  );
 
 // --- Menu registration ---
 export function register(flowcord: FlowCord): void {
@@ -145,7 +185,10 @@ export function register(flowcord: FlowCord): void {
   // Menu 1: Shop Home (with button pagination)
   // ---------------------------------------------------------------------------
   flowcord.registerMenu('shop', (session) =>
-    new MenuBuilder<Record<string, unknown>, ShopSessionState>(session, 'shop')
+    new MenuBuilder<Record<string, unknown>, ShopSessionState>(
+      session,
+      'shop',
+    )
       .setup((ctx) => {
         // Initialize player stats in session state
         ctx.sessionState.set('gold', 500);
@@ -166,10 +209,12 @@ export function register(flowcord: FlowCord): void {
                 `🎒 **Items Owned:** ${inventory.length}` +
                 (page
                   ? `\n\n📄 Page ${page.currentPage} of ${page.totalPages}`
-                  : '')
+                  : ''),
             )
             .setColor(0xe67e22)
-            .setFooter({ text: 'Each button corresponds to an item for sale' }),
+            .setFooter({
+              text: 'Each button corresponds to an item for sale',
+            }),
         ];
       })
 
@@ -182,8 +227,8 @@ export function register(flowcord: FlowCord): void {
               item.rarity === 'legendary'
                 ? ButtonStyle.Danger
                 : item.rarity === 'rare'
-                ? ButtonStyle.Primary
-                : ButtonStyle.Secondary,
+                  ? ButtonStyle.Primary
+                  : ButtonStyle.Secondary,
             action: goTo('item-detail', { itemId: item.id }),
           })),
         // Pagination config: 4 buttons per page
@@ -192,20 +237,24 @@ export function register(flowcord: FlowCord): void {
             perPage: 4,
             stableButtons: true, // Always show both nav buttons (disabled when N/A)
           },
-        }
+        },
       )
 
       // onNext and onPrevious hooks fire when pagination changes
       .onNext((ctx) => {
-        console.log(`[Shop] Advanced to page ${ctx.pagination?.currentPage}`);
+        console.log(
+          `[Shop] Advanced to page ${ctx.pagination?.currentPage}`,
+        );
       })
       .onPrevious((ctx) => {
-        console.log(`[Shop] Went back to page ${ctx.pagination?.currentPage}`);
+        console.log(
+          `[Shop] Went back to page ${ctx.pagination?.currentPage}`,
+        );
       })
 
       .setCancellable()
       .setTrackedInHistory()
-      .build()
+      .build(),
   );
 
   // ---------------------------------------------------------------------------
@@ -215,7 +264,10 @@ export function register(flowcord: FlowCord): void {
     const itemId = options?.itemId as string;
     const item = shopInventory.find((i) => i.id === itemId)!;
 
-    return new MenuBuilder(session, 'item-detail')
+    return new MenuBuilder<Record<string, unknown>, ShopSessionState>(
+      session,
+      'item-detail',
+    )
       .setEmbeds((ctx) => {
         const inventory = ctx.sessionState.get('inventory') ?? [];
         const owned = inventory.includes(item.id);
@@ -225,12 +277,13 @@ export function register(flowcord: FlowCord): void {
             .setTitle(`${item.emoji} ${item.name}`)
             .setDescription(
               `**Rarity:** ${
-                item.rarity.charAt(0).toUpperCase() + item.rarity.slice(1)
+                item.rarity.charAt(0).toUpperCase() +
+                item.rarity.slice(1)
               }\n` +
                 `**Price:** ${item.price}g\n\n` +
                 (owned
                   ? '✅ *You own this item.*'
-                  : '🛒 *Available for purchase.*')
+                  : '🛒 *Available for purchase.*'),
             )
             .setColor(rarityColors[item.rarity]),
         ];
@@ -243,7 +296,9 @@ export function register(flowcord: FlowCord): void {
         return [
           {
             label: owned ? '✅ Owned' : `🛒 Buy (${item.price}g)`,
-            style: owned ? ButtonStyle.Secondary : ButtonStyle.Success,
+            style: owned
+              ? ButtonStyle.Secondary
+              : ButtonStyle.Success,
             disabled: owned,
             // Pipeline: run guards before the purchase action
             action: pipeline(
@@ -252,12 +307,16 @@ export function register(flowcord: FlowCord): void {
               async (ctx) => {
                 // All guards passed — execute purchase
                 const gold = ctx.sessionState.get('gold') ?? 0;
-                const inventory = ctx.sessionState.get('inventory') ?? [];
+                const inventory =
+                  ctx.sessionState.get('inventory') ?? [];
 
                 ctx.sessionState.set('gold', gold - item.price);
-                ctx.sessionState.set('inventory', [...inventory, item.id]);
+                ctx.sessionState.set('inventory', [
+                  ...inventory,
+                  item.id,
+                ]);
                 // Stay on this page — it re-renders to show "Owned"
-              }
+              },
             ),
           },
         ];
@@ -271,16 +330,22 @@ export function register(flowcord: FlowCord): void {
   // Menu 3: Inventory View (with list pagination)
   // ---------------------------------------------------------------------------
   flowcord.registerMenu('inventory', (session) =>
-    new MenuBuilder<CatalogState, ShopSessionState>(session, 'inventory')
+    new MenuBuilder<CatalogState, ShopSessionState>(
+      session,
+      'inventory',
+    )
       .setup((ctx) => {
         const ownedIds = ctx.sessionState.get('inventory') ?? [];
-        const ownedItems = shopInventory.filter((i) => ownedIds.includes(i.id));
+        const ownedItems = shopInventory.filter((i) =>
+          ownedIds.includes(i.id),
+        );
         ctx.state.set('items', ownedItems);
       })
 
       // List pagination: page through items in the embed
       .setListPagination({
-        getTotalQuantityItems: async (ctx) => ctx.state.get('items').length,
+        getTotalQuantityItems: async (ctx) =>
+          ctx.state.get('items').length,
         itemsPerPage: 3,
       })
 
@@ -293,7 +358,7 @@ export function register(flowcord: FlowCord): void {
             new EmbedBuilder()
               .setTitle('🎒 Your Inventory')
               .setDescription(
-                'Your inventory is empty! Visit the shop to buy items.'
+                'Your inventory is empty! Visit the shop to buy items.',
               )
               .setColor(0x95a5a6),
           ];
@@ -313,9 +378,9 @@ export function register(flowcord: FlowCord): void {
                   (item, i) =>
                     `**${(page?.startIndex ?? 0) + i + 1}.** ${item.emoji} ${
                       item.name
-                    } — *${item.rarity}*`
+                    } — *${item.rarity}*`,
                 )
-                .join('\n')
+                .join('\n'),
             )
             .setColor(0x2ecc71)
             .setFooter({
@@ -327,6 +392,6 @@ export function register(flowcord: FlowCord): void {
       })
 
       .setReturnable()
-      .build()
+      .build(),
   );
 }
