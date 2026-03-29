@@ -14,9 +14,8 @@
  * Leave DEV_GUILD_ID blank to register globally (may take up to 1 hour to propagate).
  *
  * Available commands once running:
- *   /weather         — Example 01: basic menu with state
- *   /secret-weather  — Example 01: ephemeral menu
- *   /cookbook        — Example 02: multi-menu navigation
+ *   /weather   — Example 01: basic menu with state
+ *   /cookbook  — Example 02: multi-menu navigation
  *   /workout         — Example 03: state management & lifecycle hooks
  *   /party           — Example 04: sub-menu with continuation
  *   /event           — Example 05: select menus & modals
@@ -85,20 +84,26 @@ client.once('clientReady', async () => {
 
   const rest = new REST().setToken(token);
 
-  if (guildId) {
-    await rest.put(Routes.applicationGuildCommands(appId, guildId), {
-      body: allCommands,
-    });
-    console.log(
-      `Slash commands registered to guild ${guildId} (instant).`,
-    );
-  } else {
-    await rest.put(Routes.applicationCommands(appId), {
-      body: allCommands,
-    });
-    console.log(
-      'Slash commands registered globally (may take up to 1 hour to propagate).',
-    );
+  try {
+    if (guildId) {
+      await rest.put(
+        Routes.applicationGuildCommands(appId, guildId),
+        { body: allCommands },
+      );
+      console.log(
+        `Slash commands registered to guild ${guildId} (instant).`,
+      );
+    } else {
+      await rest.put(Routes.applicationCommands(appId), {
+        body: allCommands,
+      });
+      console.log(
+        'Slash commands registered globally (may take up to 1 hour to propagate).',
+      );
+    }
+  } catch (error) {
+    console.error('Failed to register slash commands:', error);
+    process.exit(1);
   }
 });
 
