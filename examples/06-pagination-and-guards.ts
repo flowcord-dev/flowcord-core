@@ -254,6 +254,7 @@ export function register(flowcord: FlowCord): void {
 
       .setCancellable()
       .setTrackedInHistory()
+      .setPreserveStateOnReturn()
       .build(),
   );
 
