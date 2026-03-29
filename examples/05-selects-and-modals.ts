@@ -29,6 +29,7 @@ import {
   TextInputStyle,
   LabelBuilder,
 } from 'discord.js';
+// Local dev (flowcord-core repo only): import { FlowCord, MenuBuilder, goTo, closeMenu } from '../src/index.ts';
 import { FlowCord, MenuBuilder, goTo, closeMenu } from '@flowcord/core';
 
 // --- Types ---

@@ -21,6 +21,7 @@ import {
   EmbedBuilder,
   ButtonStyle,
 } from 'discord.js';
+// Local dev (flowcord-core repo only): import { FlowCord, MenuBuilder, goTo } from '../src/index.ts';
 import { FlowCord, MenuBuilder, goTo } from '@flowcord/core';
 
 // --- Fake data ---

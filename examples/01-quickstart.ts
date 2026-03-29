@@ -22,6 +22,7 @@ import {
   Routes,
   SlashCommandBuilder,
 } from 'discord.js';
+// Local dev (flowcord-core repo only): import { FlowCord, MenuBuilder, closeMenu } from '../src/index.ts';
 import { FlowCord, MenuBuilder, closeMenu } from '@flowcord/core';
 
 // --- Fake data ---
