@@ -88,9 +88,7 @@ export function register(flowcord: FlowCord): void {
         ctx.state.set('viewCount', 0);
 
         // Session state persists across all menus in this session
-        if (!ctx.sessionState.has('workoutLog')) {
-          ctx.sessionState.set('workoutLog', [] as Exercise[]);
-        }
+        ctx.sessionState.set('workoutLog', [] as Exercise[]);
       })
 
       // onEnter fires every time the menu is entered (including coming back)
@@ -182,6 +180,7 @@ export function register(flowcord: FlowCord): void {
 
       .setCancellable()
       .setTrackedInHistory()
+      .setPreserveStateOnReturn()
       .build(),
   );
 
