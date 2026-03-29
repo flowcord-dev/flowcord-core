@@ -15,21 +15,24 @@
  *   - onNext / onPrevious lifecycle hooks
  */
 
+import { EmbedBuilder, ButtonStyle, SlashCommandBuilder } from 'discord.js';
+// Local dev (flowcord-core repo only): import { type FlowCord, MenuBuilder, type MenuContext, goTo, pipeline, guard } from '../src/index.ts';
 import {
-  Client,
-  GatewayIntentBits,
-  EmbedBuilder,
-  ButtonStyle,
-} from 'discord.js';
-// Local dev (flowcord-core repo only): import { FlowCord, MenuBuilder, type MenuContext, goTo, pipeline, guard } from '../src/index.ts';
-import {
-  FlowCord,
+  type FlowCord,
   MenuBuilder,
   type MenuContext,
   goTo,
   pipeline,
   guard,
 } from '@flowcord/core';
+
+// --- Slash command definitions ---
+export const commands = [
+  new SlashCommandBuilder()
+    .setName('shop')
+    .setDescription('Browse and purchase items from the adventurer shop')
+    .toJSON(),
+];
 
 // --- Types ---
 interface ShopItem {
@@ -135,209 +138,194 @@ const requireNotOwned = (item: ShopItem) =>
     return !inventory.includes(item.id);
   }, `You already own ${item.name}!`);
 
-// --- Bot setup ---
-const client = new Client({ intents: [GatewayIntentBits.Guilds] });
-const flowcord = new FlowCord({ client });
+// --- Menu registration ---
+export function register(flowcord: FlowCord): void {
+  // ---------------------------------------------------------------------------
+  // Menu 1: Shop Home (with button pagination)
+  // ---------------------------------------------------------------------------
+  flowcord.registerMenu('shop', (session) =>
+    new MenuBuilder<Record<string, unknown>, ShopSessionState>(session, 'shop')
+      .setup((ctx) => {
+        // Initialize player stats in session state
+        ctx.sessionState.set('gold', 500);
+        ctx.sessionState.set('inventory', []);
+      })
 
-// ---------------------------------------------------------------------------
-// Menu 1: Shop Home (with button pagination)
-// ---------------------------------------------------------------------------
-flowcord.registerMenu('shop', (session) =>
-  new MenuBuilder<Record<string, unknown>, ShopSessionState>(session, 'shop')
-    .setup((ctx) => {
-      // Initialize player stats in session state
-      ctx.sessionState.set('gold', 500);
-      ctx.sessionState.set('inventory', []);
-    })
+      .setEmbeds((ctx) => {
+        const gold = ctx.sessionState.get('gold') ?? 0;
+        const inventory = ctx.sessionState.get('inventory') ?? [];
+        const page = ctx.pagination;
 
-    .setEmbeds((ctx) => {
-      const gold = ctx.sessionState.get('gold') ?? 0;
-      const inventory = ctx.sessionState.get('inventory') ?? [];
-      const page = ctx.pagination;
+        return [
+          new EmbedBuilder()
+            .setTitle("🏪 The Adventurer's Shop")
+            .setDescription(
+              `Welcome, traveler! Browse our wares.\n\n` +
+                `💰 **Your Gold:** ${gold}g\n` +
+                `🎒 **Items Owned:** ${inventory.length}` +
+                (page
+                  ? `\n\n📄 Page ${page.currentPage} of ${page.totalPages}`
+                  : '')
+            )
+            .setColor(0xe67e22)
+            .setFooter({ text: 'Each button corresponds to an item for sale' }),
+        ];
+      })
 
-      return [
-        new EmbedBuilder()
-          .setTitle("🏪 The Adventurer's Shop")
-          .setDescription(
-            `Welcome, traveler! Browse our wares.\n\n` +
-              `💰 **Your Gold:** ${gold}g\n` +
-              `🎒 **Items Owned:** ${inventory.length}` +
-              (page
-                ? `\n\n📄 Page ${page.currentPage} of ${page.totalPages}`
-                : '')
-          )
-          .setColor(0xe67e22)
-          .setFooter({ text: 'Each button corresponds to an item for sale' }),
-      ];
-    })
-
-    // Button pagination: show 4 items per page with Next/Previous buttons
-    .setButtons(
-      () =>
-        shopInventory.map((item) => ({
-          label: `${item.emoji} ${item.name} (${item.price}g)`,
-          style:
-            item.rarity === 'legendary'
-              ? ButtonStyle.Danger
-              : item.rarity === 'rare'
-              ? ButtonStyle.Primary
-              : ButtonStyle.Secondary,
-          action: goTo('item-detail', { itemId: item.id }),
-        })),
-      // Pagination config: 4 buttons per page
-      {
-        pagination: {
-          perPage: 4,
-          stableButtons: true, // Always show both nav buttons (disabled when N/A)
-        },
-      }
-    )
-
-    // onNext and onPrevious hooks fire when pagination changes
-    .onNext((ctx) => {
-      console.log(`[Shop] Advanced to page ${ctx.pagination?.currentPage}`);
-    })
-    .onPrevious((ctx) => {
-      console.log(`[Shop] Went back to page ${ctx.pagination?.currentPage}`);
-    })
-
-    .setCancellable()
-    .setTrackedInHistory()
-    .build()
-);
-
-// ---------------------------------------------------------------------------
-// Menu 2: Item Detail (with guards)
-// ---------------------------------------------------------------------------
-flowcord.registerMenu('item-detail', (session, options) => {
-  const itemId = options?.itemId as string;
-  const item = shopInventory.find((i) => i.id === itemId)!;
-
-  return new MenuBuilder(session, 'item-detail')
-    .setEmbeds((ctx) => {
-      const inventory = ctx.sessionState.get('inventory') ?? [];
-      const owned = inventory.includes(item.id);
-
-      return [
-        new EmbedBuilder()
-          .setTitle(`${item.emoji} ${item.name}`)
-          .setDescription(
-            `**Rarity:** ${
-              item.rarity.charAt(0).toUpperCase() + item.rarity.slice(1)
-            }\n` +
-              `**Price:** ${item.price}g\n\n` +
-              (owned
-                ? '✅ *You own this item.*'
-                : '🛒 *Available for purchase.*')
-          )
-          .setColor(rarityColors[item.rarity]),
-      ];
-    })
-
-    .setButtons((ctx) => {
-      const inventory = ctx.sessionState.get('inventory') ?? [];
-      const owned = inventory.includes(item.id);
-
-      return [
+      // Button pagination: show 4 items per page with Next/Previous buttons
+      .setButtons(
+        () =>
+          shopInventory.map((item) => ({
+            label: `${item.emoji} ${item.name} (${item.price}g)`,
+            style:
+              item.rarity === 'legendary'
+                ? ButtonStyle.Danger
+                : item.rarity === 'rare'
+                ? ButtonStyle.Primary
+                : ButtonStyle.Secondary,
+            action: goTo('item-detail', { itemId: item.id }),
+          })),
+        // Pagination config: 4 buttons per page
         {
-          label: owned ? '✅ Owned' : `🛒 Buy (${item.price}g)`,
-          style: owned ? ButtonStyle.Secondary : ButtonStyle.Success,
-          disabled: owned,
-          // Pipeline: run guards before the purchase action
-          action: pipeline(
-            requireGold(item),
-            requireNotOwned(item),
-            async (ctx) => {
-              // All guards passed — execute purchase
-              const gold = ctx.sessionState.get('gold') ?? 0;
-              const inventory = ctx.sessionState.get('inventory') ?? [];
+          pagination: {
+            perPage: 4,
+            stableButtons: true, // Always show both nav buttons (disabled when N/A)
+          },
+        }
+      )
 
-              ctx.sessionState.set('gold', gold - item.price);
-              ctx.sessionState.set('inventory', [...inventory, item.id]);
-              // Stay on this page — it re-renders to show "Owned"
-            }
-          ),
-        },
-      ];
-    })
+      // onNext and onPrevious hooks fire when pagination changes
+      .onNext((ctx) => {
+        console.log(`[Shop] Advanced to page ${ctx.pagination?.currentPage}`);
+      })
+      .onPrevious((ctx) => {
+        console.log(`[Shop] Went back to page ${ctx.pagination?.currentPage}`);
+      })
 
-    .setReturnable()
-    .build();
-});
+      .setCancellable()
+      .setTrackedInHistory()
+      .build()
+  );
 
-// ---------------------------------------------------------------------------
-// Menu 3: Inventory View (with list pagination)
-// ---------------------------------------------------------------------------
-flowcord.registerMenu('inventory', (session) =>
-  new MenuBuilder<CatalogState, ShopSessionState>(session, 'inventory')
-    .setup((ctx) => {
-      const ownedIds = ctx.sessionState.get('inventory') ?? [];
-      const ownedItems = shopInventory.filter((i) => ownedIds.includes(i.id));
-      ctx.state.set('items', ownedItems);
-    })
+  // ---------------------------------------------------------------------------
+  // Menu 2: Item Detail (with guards)
+  // ---------------------------------------------------------------------------
+  flowcord.registerMenu('item-detail', (session, options) => {
+    const itemId = options?.itemId as string;
+    const item = shopInventory.find((i) => i.id === itemId)!;
 
-    // List pagination: page through items in the embed
-    .setListPagination({
-      getTotalQuantityItems: async (ctx) => ctx.state.get('items').length,
-      itemsPerPage: 3,
-    })
+    return new MenuBuilder(session, 'item-detail')
+      .setEmbeds((ctx) => {
+        const inventory = ctx.sessionState.get('inventory') ?? [];
+        const owned = inventory.includes(item.id);
 
-    .setEmbeds((ctx) => {
-      const items = ctx.state.get('items');
-      const page = ctx.pagination;
+        return [
+          new EmbedBuilder()
+            .setTitle(`${item.emoji} ${item.name}`)
+            .setDescription(
+              `**Rarity:** ${
+                item.rarity.charAt(0).toUpperCase() + item.rarity.slice(1)
+              }\n` +
+                `**Price:** ${item.price}g\n\n` +
+                (owned
+                  ? '✅ *You own this item.*'
+                  : '🛒 *Available for purchase.*')
+            )
+            .setColor(rarityColors[item.rarity]),
+        ];
+      })
 
-      if (items.length === 0) {
+      .setButtons((ctx) => {
+        const inventory = ctx.sessionState.get('inventory') ?? [];
+        const owned = inventory.includes(item.id);
+
+        return [
+          {
+            label: owned ? '✅ Owned' : `🛒 Buy (${item.price}g)`,
+            style: owned ? ButtonStyle.Secondary : ButtonStyle.Success,
+            disabled: owned,
+            // Pipeline: run guards before the purchase action
+            action: pipeline(
+              requireGold(item),
+              requireNotOwned(item),
+              async (ctx) => {
+                // All guards passed — execute purchase
+                const gold = ctx.sessionState.get('gold') ?? 0;
+                const inventory = ctx.sessionState.get('inventory') ?? [];
+
+                ctx.sessionState.set('gold', gold - item.price);
+                ctx.sessionState.set('inventory', [...inventory, item.id]);
+                // Stay on this page — it re-renders to show "Owned"
+              }
+            ),
+          },
+        ];
+      })
+
+      .setReturnable()
+      .build();
+  });
+
+  // ---------------------------------------------------------------------------
+  // Menu 3: Inventory View (with list pagination)
+  // ---------------------------------------------------------------------------
+  flowcord.registerMenu('inventory', (session) =>
+    new MenuBuilder<CatalogState, ShopSessionState>(session, 'inventory')
+      .setup((ctx) => {
+        const ownedIds = ctx.sessionState.get('inventory') ?? [];
+        const ownedItems = shopInventory.filter((i) => ownedIds.includes(i.id));
+        ctx.state.set('items', ownedItems);
+      })
+
+      // List pagination: page through items in the embed
+      .setListPagination({
+        getTotalQuantityItems: async (ctx) => ctx.state.get('items').length,
+        itemsPerPage: 3,
+      })
+
+      .setEmbeds((ctx) => {
+        const items = ctx.state.get('items');
+        const page = ctx.pagination;
+
+        if (items.length === 0) {
+          return [
+            new EmbedBuilder()
+              .setTitle('🎒 Your Inventory')
+              .setDescription(
+                'Your inventory is empty! Visit the shop to buy items.'
+              )
+              .setColor(0x95a5a6),
+          ];
+        }
+
+        // Use pagination state to slice the item array
+        const pageItems = page
+          ? items.slice(page.startIndex, page.endIndex)
+          : items;
+
         return [
           new EmbedBuilder()
             .setTitle('🎒 Your Inventory')
             .setDescription(
-              'Your inventory is empty! Visit the shop to buy items.'
+              pageItems
+                .map(
+                  (item, i) =>
+                    `**${(page?.startIndex ?? 0) + i + 1}.** ${item.emoji} ${
+                      item.name
+                    } — *${item.rarity}*`
+                )
+                .join('\n')
             )
-            .setColor(0x95a5a6),
+            .setColor(0x2ecc71)
+            .setFooter({
+              text: page
+                ? `Page ${page.currentPage}/${page.totalPages} • ${page.totalItems} items total`
+                : `${items.length} items total`,
+            }),
         ];
-      }
+      })
 
-      // Use pagination state to slice the item array
-      const pageItems = page
-        ? items.slice(page.startIndex, page.endIndex)
-        : items;
-
-      return [
-        new EmbedBuilder()
-          .setTitle('🎒 Your Inventory')
-          .setDescription(
-            pageItems
-              .map(
-                (item, i) =>
-                  `**${(page?.startIndex ?? 0) + i + 1}.** ${item.emoji} ${
-                    item.name
-                  } — *${item.rarity}*`
-              )
-              .join('\n')
-          )
-          .setColor(0x2ecc71)
-          .setFooter({
-            text: page
-              ? `Page ${page.currentPage}/${page.totalPages} • ${page.totalItems} items total`
-              : `${items.length} items total`,
-          }),
-      ];
-    })
-
-    .setReturnable()
-    .build()
-);
-
-// --- Interaction handler ---
-client.on('interactionCreate', async (interaction) => {
-  if (interaction.isChatInputCommand()) {
-    if (interaction.commandName === 'shop') {
-      await flowcord.handleInteraction(interaction, 'shop');
-    }
-  } else if (interaction.isMessageComponent()) {
-    flowcord.routeComponentInteraction(interaction);
-  }
-});
-
-client.once('ready', () => console.log(`Logged in as ${client.user?.tag}`));
-client.login(process.env.DISCORD_BOT_TOKEN);
+      .setReturnable()
+      .build()
+  );
+}

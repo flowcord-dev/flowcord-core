@@ -28,13 +28,8 @@
     "release:alpha": "npm version prerelease --preid=alpha && git push --follow-tags",
     "release:patch": "npm version patch && git push --follow-tags",
     "release:minor": "npm version minor && git push --follow-tags",
-    "example:setup": "node -e \"const fs=require('fs');if(!fs.existsSync('.env')){fs.copyFileSync('.env.example','.env');console.log('Created .env from .env.example');}else{console.log('.env already exists — skipping');}\"",
-    "example:01": "tsx --env-file=.env examples/01-quickstart.ts",
-    "example:02": "tsx --env-file=.env examples/02-multi-menu-navigation.ts",
-    "example:03": "tsx --env-file=.env examples/03-state-and-lifecycle.ts",
-    "example:04": "tsx --env-file=.env examples/04-sub-menu-continuation.ts",
-    "example:05": "tsx --env-file=.env examples/05-selects-and-modals.ts",
-    "example:06": "tsx --env-file=.env examples/06-pagination-and-guards.ts"
+    "flow:setup": "node scripts/setup-env.js",
+    "flow": "tsx --env-file=.env examples/bot.ts"
   },
   "publishConfig": {
     "access": "public",
