@@ -28,7 +28,8 @@ import {
   LabelBuilder,
   SlashCommandBuilder,
 } from 'discord.js';
-// Local dev (flowcord-core repo only): import { type FlowCord, MenuBuilder, goTo, closeMenu } from '../src/index.ts';
+// Local dev (flowcord-core repo only):
+// import { type FlowCord, MenuBuilder, goTo, closeMenu } from '../src/index.ts';
 import { type FlowCord, MenuBuilder, goTo, closeMenu } from '@flowcord/core';
 
 // --- Slash command definitions ---

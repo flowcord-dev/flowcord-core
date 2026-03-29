@@ -16,7 +16,8 @@
  */
 
 import { EmbedBuilder, ButtonStyle, SlashCommandBuilder } from 'discord.js';
-// Local dev (flowcord-core repo only): import { type FlowCord, MenuBuilder, goTo } from '../src/index.ts';
+// Local dev (flowcord-core repo only):
+// import { type FlowCord, MenuBuilder, goTo } from '../src/index.ts';
 import { type FlowCord, MenuBuilder, goTo } from '@flowcord/core';
 
 // --- Slash command definitions ---
