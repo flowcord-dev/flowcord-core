@@ -29,8 +29,18 @@ import {
   SlashCommandBuilder,
 } from 'discord.js';
 // Local dev (flowcord-core repo only):
-// import { type FlowCord, MenuBuilder, goTo, closeMenu } from '../src/index.ts';
-import { type FlowCord, MenuBuilder, goTo, closeMenu } from '@flowcord/core';
+// import {
+//   type FlowCord,
+//   MenuBuilder,
+//   goTo,
+//   closeMenu,
+// } from '../src/index.ts';
+import {
+  type FlowCord,
+  MenuBuilder,
+  goTo,
+  closeMenu,
+} from '@flowcord/core';
 
 // --- Slash command definitions ---
 export const commands = [
@@ -62,7 +72,11 @@ const themes = [
   { label: '🎄 Winter Wonderland', value: 'winter', color: 0x00bfff },
   { label: '🌴 Tropical Luau', value: 'tropical', color: 0x00cc66 },
   { label: '🚀 Space Odyssey', value: 'space', color: 0x6600cc },
-  { label: '🎭 Masquerade Ball', value: 'masquerade', color: 0xcc0066 },
+  {
+    label: '🎭 Masquerade Ball',
+    value: 'masquerade',
+    color: 0xcc0066,
+  },
 ];
 
 // --- Menu registration ---
@@ -71,7 +85,10 @@ export function register(flowcord: FlowCord): void {
   // Menu 1: Theme Picker (Select Menu)
   // ---------------------------------------------------------------------------
   flowcord.registerMenu('event', (session) =>
-    new MenuBuilder<ThemePickerState, EventSessionState>(session, 'event')
+    new MenuBuilder<ThemePickerState, EventSessionState>(
+      session,
+      'event',
+    )
       .setup((ctx) => {
         ctx.state.set('selectedTheme', null);
       })
@@ -86,7 +103,7 @@ export function register(flowcord: FlowCord): void {
             .setDescription(
               selected
                 ? `You selected: **${theme?.label}**\n\nPress "Plan Event" to fill in the details.`
-                : 'Choose a theme for your event from the dropdown below.'
+                : 'Choose a theme for your event from the dropdown below.',
             )
             .setColor(theme?.color ?? 0x95a5a6),
         ];
@@ -100,7 +117,7 @@ export function register(flowcord: FlowCord): void {
             themes.map((t) => ({
               label: t.label,
               value: t.value,
-            }))
+            })),
           ),
         onSelect: async (ctx, values) => {
           ctx.state.set('selectedTheme', values[0]);
@@ -121,7 +138,7 @@ export function register(flowcord: FlowCord): void {
       ])
       .setCancellable()
       .setTrackedInHistory()
-      .build()
+      .build(),
   );
 
   // ---------------------------------------------------------------------------
@@ -130,7 +147,7 @@ export function register(flowcord: FlowCord): void {
   flowcord.registerMenu('event-details', (session) =>
     new MenuBuilder<EventDetailsState, EventSessionState>(
       session,
-      'event-details'
+      'event-details',
     )
       .setup((ctx) => {
         ctx.state.set('name', null);
@@ -155,7 +172,7 @@ export function register(flowcord: FlowCord): void {
               .setTitle('📝 Event Details')
               .setDescription(
                 `Theme: **${theme?.label ?? 'None'}**\n\n` +
-                  'Click "Fill Details" to enter your event information.'
+                  'Click "Fill Details" to enter your event information.',
               )
               .setColor(theme?.color ?? 0x95a5a6),
           ];
@@ -167,12 +184,16 @@ export function register(flowcord: FlowCord): void {
             .setTitle(`🎉 ${name}`)
             .setDescription(description ?? 'No description provided.')
             .addFields(
-              { name: '🎨 Theme', value: theme?.label ?? 'None', inline: true },
+              {
+                name: '🎨 Theme',
+                value: theme?.label ?? 'None',
+                inline: true,
+              },
               {
                 name: '👥 Max Guests',
                 value: maxGuests ?? 'Unlimited',
                 inline: true,
-              }
+              },
             )
             .setColor(theme?.color ?? 0x2ecc71)
             .setFooter({
@@ -201,7 +222,7 @@ export function register(flowcord: FlowCord): void {
                       .setStyle(TextInputStyle.Short)
                       .setPlaceholder('e.g. Annual Company Party')
                       .setRequired(true)
-                      .setMaxLength(100)
+                      .setMaxLength(100),
                   ),
                 new LabelBuilder()
                   .setLabel('Description')
@@ -211,7 +232,7 @@ export function register(flowcord: FlowCord): void {
                       .setStyle(TextInputStyle.Paragraph)
                       .setPlaceholder('Tell guests what to expect...')
                       .setRequired(false)
-                      .setMaxLength(500)
+                      .setMaxLength(500),
                   ),
                 new LabelBuilder()
                   .setLabel('Maximum Guests')
@@ -219,19 +240,24 @@ export function register(flowcord: FlowCord): void {
                     new TextInputBuilder()
                       .setCustomId('event-max-guests')
                       .setStyle(TextInputStyle.Short)
-                      .setPlaceholder('e.g. 50 (leave blank for unlimited)')
-                      .setRequired(false)
-                  )
+                      .setPlaceholder(
+                        'e.g. 50 (leave blank for unlimited)',
+                      )
+                      .setRequired(false),
+                  ),
               ),
             onSubmit: async (ctx, fields) => {
-              ctx.state.set('name', fields.getTextInputValue('event-name'));
+              ctx.state.set(
+                'name',
+                fields.getTextInputValue('event-name'),
+              );
               ctx.state.set(
                 'description',
-                fields.getTextInputValue('event-description') || null
+                fields.getTextInputValue('event-description') || null,
               );
               ctx.state.set(
                 'maxGuests',
-                fields.getTextInputValue('event-max-guests') || null
+                fields.getTextInputValue('event-max-guests') || null,
               );
               // Menu re-renders automatically after modal submit
             },
@@ -242,20 +268,24 @@ export function register(flowcord: FlowCord): void {
               .setCustomId('edit-event')
               .setTitle('Edit Event')
               .addLabelComponents(
-                new LabelBuilder().setLabel('Name').setTextInputComponent(
-                  new TextInputBuilder()
-                    .setCustomId('event-name')
-                    .setStyle(TextInputStyle.Short)
-                    .setValue(existingName ?? '')
-                    .setRequired(true)
-                ),
-                new LabelBuilder().setLabel('Description').setTextInputComponent(
-                  new TextInputBuilder()
-                    .setCustomId('event-description')
-                    .setStyle(TextInputStyle.Paragraph)
-                    .setValue(ctx.state.get('description') ?? '')
-                    .setRequired(false)
-                ),
+                new LabelBuilder()
+                  .setLabel('Name')
+                  .setTextInputComponent(
+                    new TextInputBuilder()
+                      .setCustomId('event-name')
+                      .setStyle(TextInputStyle.Short)
+                      .setValue(existingName ?? '')
+                      .setRequired(true),
+                  ),
+                new LabelBuilder()
+                  .setLabel('Description')
+                  .setTextInputComponent(
+                    new TextInputBuilder()
+                      .setCustomId('event-description')
+                      .setStyle(TextInputStyle.Paragraph)
+                      .setValue(ctx.state.get('description') ?? '')
+                      .setRequired(false),
+                  ),
                 new LabelBuilder()
                   .setLabel('Maximum Guests')
                   .setTextInputComponent(
@@ -263,18 +293,21 @@ export function register(flowcord: FlowCord): void {
                       .setCustomId('event-max-guests')
                       .setStyle(TextInputStyle.Short)
                       .setValue(ctx.state.get('maxGuests') ?? '')
-                      .setRequired(false)
-                  )
+                      .setRequired(false),
+                  ),
               ),
             onSubmit: async (ctx, fields) => {
-              ctx.state.set('name', fields.getTextInputValue('event-name'));
+              ctx.state.set(
+                'name',
+                fields.getTextInputValue('event-name'),
+              );
               ctx.state.set(
                 'description',
-                fields.getTextInputValue('event-description') || null
+                fields.getTextInputValue('event-description') || null,
               );
               ctx.state.set(
                 'maxGuests',
-                fields.getTextInputValue('event-max-guests') || null
+                fields.getTextInputValue('event-max-guests') || null,
               );
             },
           },
@@ -311,6 +344,6 @@ export function register(flowcord: FlowCord): void {
       })
 
       .setReturnable()
-      .build()
+      .build(),
   );
 }

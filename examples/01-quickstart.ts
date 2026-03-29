@@ -15,10 +15,22 @@
  *   - closeMenu() and setCancellable() for closing
  */
 
-import { EmbedBuilder, ButtonStyle, SlashCommandBuilder } from 'discord.js';
+import {
+  EmbedBuilder,
+  ButtonStyle,
+  SlashCommandBuilder,
+} from 'discord.js';
 // Local dev (flowcord-core repo only):
-// import { type FlowCord, MenuBuilder, closeMenu } from '../src/index.ts';
-import { type FlowCord, MenuBuilder, closeMenu } from '@flowcord/core';
+// import {
+//   type FlowCord,
+//   MenuBuilder,
+//   closeMenu,
+// } from '../src/index.ts';
+import {
+  type FlowCord,
+  MenuBuilder,
+  closeMenu,
+} from '@flowcord/core';
 
 // --- Slash command definitions ---
 export const commands = [
@@ -39,7 +51,9 @@ const weatherConditions = [
 
 function getRandomWeather() {
   const condition =
-    weatherConditions[Math.floor(Math.random() * weatherConditions.length)];
+    weatherConditions[
+      Math.floor(Math.random() * weatherConditions.length)
+    ];
   const temp = Math.floor(Math.random() * 35) + 5; // 5–40°C
   return { condition, temp };
 }
@@ -58,7 +72,7 @@ export function register(flowcord: FlowCord): void {
           .setTitle('🌍 Weather Report — Cerulean City')
           .setDescription(
             `**Condition:** ${ctx.state.get('condition')}\n` +
-              `**Temperature:** ${ctx.state.get('temp')}°C`
+              `**Temperature:** ${ctx.state.get('temp')}°C`,
           )
           .setColor(0x3498db)
           .setFooter({ text: 'Press Refresh to check again' })
@@ -82,6 +96,6 @@ export function register(flowcord: FlowCord): void {
         },
       ])
       .setCancellable()
-      .build()
+      .build(),
   );
 }
