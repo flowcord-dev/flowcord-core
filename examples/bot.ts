@@ -57,7 +57,7 @@ const allCommands = [
 ];
 
 // --- Register slash commands on ready, then log in ---
-client.once('ready', async () => {
+client.once('clientReady', async () => {
   console.log(`Logged in as ${client.user?.tag}`);
 
   const token = process.env.DISCORD_BOT_TOKEN!;
