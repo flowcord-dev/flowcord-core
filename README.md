@@ -32,6 +32,8 @@ FlowCord replaces the boilerplate of managing component collectors, interaction 
   - [Sub-Menus & Continuations](#sub-menus--continuations)
   - [Guards & Pipelines](#guards--pipelines)
   - [Fallback Menus](#fallback-menus)
+  - [Ephemeral Menus](#ephemeral-menus)
+  - [Behavior Policy](#behavior-policy)
   - [Navigation Tracing](#navigation-tracing)
 - [API Reference](#api-reference)
 - [Examples](#examples)
@@ -53,6 +55,8 @@ FlowCord replaces the boilerplate of managing component collectors, interaction 
 - **Sub-menus & continuations** — Parent–child menu patterns with typed result passing via `openSubMenu()` and `complete()`
 - **Guards & pipelines** — Composable action middleware for permission checks and validation
 - **Modal support** — Single or multiple modals per menu with automatic re-rendering after submission
+- **Ephemeral menu support** — Per-menu or session-wide ephemeral control, with automatic transition handling between ephemeral and non-ephemeral menus
+- **Behavior policy system** — Configurable defaults and overrides at global, session, and builder levels; extensible to future behaviors
 - **Session timeout** — Configurable inactivity timeout with automatic cleanup
 - **Navigation tracing** — Optional debug tracing of all menu transitions
 
@@ -141,19 +145,28 @@ The `FlowCord` class is the main entry point. It wraps the internal `MenuEngine`
 
 ```ts
 const flowcord = new FlowCord({
-  client, // Your Discord.js Client
+  client,          // Your Discord.js Client
   timeout: 120_000, // Session timeout in ms (default: 2 minutes)
   onError: async (session, error) => {
     console.error('FlowCord error:', error);
   },
   enableTracing: false, // Enable navigation tracing (default: false)
+  behavior: {      // Optional: global behavior policy (see Behavior Policy)
+    default:   { ephemeral: false },
+    override:  { ephemeral: true },
+  },
 });
 
 // Register menus
 flowcord.registerMenu('menu-name', menuFactory);
 
 // Handle slash commands → starts a new session
-await flowcord.handleInteraction(interaction, 'menu-name', options);
+await flowcord.handleInteraction(
+  interaction,
+  'menu-name',
+  commandOptions,      // Passed to the menu factory as ctx.options
+  interactionOptions,  // { entryEphemeral?, behavior? }
+);
 
 // Route button/select clicks → dispatches to active session
 flowcord.routeComponentInteraction(interaction);
@@ -174,6 +187,7 @@ flowcord.registerMenu('my-menu', (session, options) =>
     .setReturnable()                  // Adds a ← Back button
     .setTrackedInHistory()            // Enables goBack() to return here
     .setPreserveStateOnReturn()       // Optional: restore menu state when returning via goBack()
+    .setEphemeral()                   // Optional: visible only to the invoking user
     .onEnter((ctx) => {...})          // Lifecycle hook
     .build()
 );
@@ -585,6 +599,97 @@ new MenuBuilder(session, 'item-detail')
 
 Without a fallback, `goBack()` on an empty stack closes the session.
 
+### Ephemeral Menus
+
+Ephemeral messages are only visible to the user who triggered the interaction. Mark a menu ephemeral with `.setEphemeral()` on the builder:
+
+```ts
+flowcord.registerMenu('private-menu', (session) =>
+  new MenuBuilder(session, 'private-menu')
+    .setEphemeral()
+    .setEmbeds(() => [...])
+    .build()
+);
+```
+
+**Async factory timing**: Discord requires `deferReply` to be called within 3 seconds of the interaction. For async factory functions, FlowCord must defer before awaiting the factory — which means it cannot read `setEphemeral()` from the builder in time. Pass `entryEphemeral` in the interaction options when your factory is async:
+
+```ts
+// Sync factory — setEphemeral() is sufficient, no entryEphemeral needed
+flowcord.registerMenu('sync-menu', (session) =>
+  new MenuBuilder(session, 'sync-menu').setEphemeral().setEmbeds(() => [...]).build()
+);
+
+// Async factory — must also pass entryEphemeral
+flowcord.registerMenu('async-menu', async (session) => {
+  const data = await fetchData();
+  return new MenuBuilder(session, 'async-menu')
+    .setEphemeral()
+    .setEmbeds(() => [...])
+    .build();
+});
+
+await flowcord.handleInteraction(interaction, 'async-menu', {}, { entryEphemeral: true });
+```
+
+**Transitions**: When navigating between ephemeral and non-ephemeral menus, FlowCord handles the transition automatically — sending a new `followUp` message when switching to ephemeral, and stripping components from the outgoing message when leaving ephemeral (Discord does not allow deleting ephemeral messages via REST).
+
+---
+
+### Behavior Policy
+
+The behavior policy system controls menu behaviors (currently ephemeral) at three levels with a clear resolution hierarchy:
+
+```
+globalOverride → sessionOverride → classOverride (_setOverrideBehavior)
+  → explicit (setEphemeral / entryEphemeral)
+    → classDefault (_setDefaultBehavior) → sessionDefault → globalDefault → false
+```
+
+Each level has a `default` (applied when no more-specific level declares a value) and an `override` (applied regardless of more-specific declarations, but still yielding to higher-level overrides).
+
+**Global policy** — set on the `FlowCord` constructor, applies to all sessions:
+
+```ts
+const flowcord = new FlowCord({
+  client,
+  behavior: {
+    default:  { ephemeral: false }, // applies when nothing else declares ephemeral
+    override: { ephemeral: true },  // forces all menus ephemeral regardless of builder
+  },
+});
+```
+
+**Session policy** — set per-invocation via `handleInteraction`, applies to all menus in that session:
+
+```ts
+await flowcord.handleInteraction(interaction, 'my-menu', {}, {
+  entryEphemeral: true,                        // async factory timing; explicit priority
+  behavior: {
+    default:  { ephemeral: true },   // session-wide default (menus without setEphemeral also become ephemeral)
+    override: { ephemeral: false },  // session-wide override (wins over builder setEphemeral)
+  },
+});
+```
+
+**Subclass defaults and overrides** — `MenuBuilder` exposes two protected methods for builder subclasses to establish class-level behavior without exposing it as a per-menu public API:
+
+```ts
+class AdminMenuBuilder extends MenuBuilder {
+  constructor(session, name, options) {
+    super(session, name, options);
+    // Default: menus are ephemeral by default; setEphemeral(false) or any policy can override
+    this._setDefaultBehavior({ ephemeral: true });
+    // Override: menus are always ephemeral unless session/global forces otherwise
+    this._setOverrideBehavior({ ephemeral: true });
+  }
+}
+```
+
+**Extensibility**: `BehaviorConfig` is the single extension point. Adding a new behavior (e.g. `replyMode`) only requires a new optional field there — no structural changes to the policy system.
+
+---
+
 ### Navigation Tracing
 
 Enable tracing to record all menu transitions for debugging:
@@ -605,9 +710,9 @@ const events = flowcord.tracer.events;
 
 | Method                                               | Description                                                           |
 | ---------------------------------------------------- | --------------------------------------------------------------------- |
-| `new FlowCord(config)`                               | Create instance with `{ client, timeout?, onError?, enableTracing? }` |
-| `registerMenu(name, factory)`                        | Register a menu factory function                                      |
-| `handleInteraction(interaction, menuName, options?)` | Start a new session from a slash command                              |
+| `new FlowCord(config)`                                                          | Create instance with `{ client, timeout?, onError?, enableTracing?, behavior? }` |
+| `registerMenu(name, factory)`                                                   | Register a menu factory function                                                 |
+| `handleInteraction(interaction, menuName, commandOptions?, interactionOptions?)` | Start a new session from a slash command                                         |
 | `routeComponentInteraction(interaction)`             | Route a button/select interaction to an active session                |
 | `isFlowCordInteraction(customId)`                    | Check if a `customId` belongs to a FlowCord session                   |
 | `getSession(sessionId)`                              | Get an active session by ID                                           |
@@ -629,6 +734,9 @@ const events = flowcord.tracer.events;
 | `.setTrackedInHistory()`         | Any    | Push to nav stack when leaving                                 |
 | `.setPreserveStateOnReturn()`    | Any    | Restore previous menu state snapshot when returning via goBack |
 | `.setFallbackMenu(id, options?)` | Any    | Fallback for goBack on empty stack                             |
+| `.setEphemeral(ephemeral?)`      | Any    | Mark menu as ephemeral (visible only to invoking user)         |
+| `_setDefaultBehavior(config)` *(protected)* | Any    | Subclass hook: class-level defaults, lowest priority in hierarchy        |
+| `_setOverrideBehavior(config)` *(protected)* | Any   | Subclass hook: class-level overrides, wins over explicit but yields to session/global |
 | `.setListPagination(options)`    | Any    | Configure list pagination                                      |
 | `.onEnter(fn)`                   | Any    | Hook: menu entered                                             |
 | `.onLeave(fn)`                   | Any    | Hook: menu leaving                                             |
