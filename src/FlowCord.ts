@@ -3,7 +3,8 @@ import type {
   MessageComponentInteraction,
 } from 'discord.js';
 import { MenuEngine } from './engine/MenuEngine';
-import type { MenuEngineConfig } from './engine/MenuEngine';
+import type { MenuEngineConfig, HandleInteractionOptions } from './engine/MenuEngine';
+export type { HandleInteractionOptions };
 import type { CreateMenuDefinitionFn } from './registry/MenuRegistry';
 import type { MenuSession } from './engine/MenuSession';
 import type { FlowCordClient } from './FlowCordClient';
@@ -50,22 +51,18 @@ export class FlowCord {
 
   /**
    * Handle an incoming slash command interaction.
-   *
-   * @param ephemeral - Make the initial reply visible only to the invoking
-   *   user. Only required when the menu's factory function is async — for
-   *   sync factories, call `.setEphemeral()` on the MenuBuilder instead.
    */
   async handleInteraction(
     interaction: ChatInputCommandInteraction,
     menuName: string,
     options?: Record<string, unknown>,
-    ephemeral?: boolean
+    interactionOptions?: HandleInteractionOptions
   ): Promise<void> {
     return this._engine.handleInteraction(
       interaction,
       menuName,
       options,
-      ephemeral
+      interactionOptions
     );
   }
 

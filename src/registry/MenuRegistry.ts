@@ -13,6 +13,7 @@ import type {
   SelectConfig,
   SetButtonsOptions,
 } from '../types/common';
+import type { MenuBehavior } from '../types/behavior';
 import type { EmbedBuilder } from 'discord.js';
 import type { MenuSessionLike } from '../context/MenuContext';
 
@@ -36,7 +37,7 @@ export interface MenuDefinition<TCtx = MenuContext> {
   isTrackedInHistory: boolean;
   isCancellable: boolean;
   isReturnable: boolean;
-  ephemeral: boolean;
+  behavior: MenuBehavior;
   preserveStateOnReturn: boolean;
   fallbackMenu?: string;
   fallbackMenuOptions?: Record<string, unknown>;

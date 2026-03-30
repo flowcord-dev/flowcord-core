@@ -31,6 +31,11 @@ import { MenuRenderer } from '../menu/MenuRenderer';
 import { LifecycleManager } from '../lifecycle/LifecycleManager';
 import { ComponentIdManager } from '../components/ComponentIdManager';
 import type { MenuDefinition } from '../registry/MenuRegistry';
+import {
+  resolveBehavior,
+  type BehaviorPolicy,
+} from '../types/behavior';
+import type { HandleInteractionOptions } from './MenuEngine';
 import type { MenuEngine } from './MenuEngine';
 
 /**
@@ -64,6 +69,7 @@ export class MenuSession implements MenuSessionLike {
   private _currentMenu: MenuInstance | null = null;
   private _isCancelled = false;
   private _isCompleted = false;
+  private _sessionBehavior: BehaviorPolicy | undefined = undefined;
 
   /**
    * Tracks whether navigation happened during the current action.
@@ -150,8 +156,10 @@ export class MenuSession implements MenuSessionLike {
   async initialize(
     menuName: string,
     options?: Record<string, unknown>,
-    ephemeral?: boolean
+    interactionOptions?: HandleInteractionOptions
   ): Promise<void> {
+    this._sessionBehavior = interactionOptions?.behavior;
+
     const factory = this._engine.menuRegistry.getFactory(menuName);
     if (!factory) {
       throw new Error(`Menu "${menuName}" is not registered.`);
@@ -159,22 +167,35 @@ export class MenuSession implements MenuSessionLike {
 
     if (isAsyncFactory(factory)) {
       // Async factory: defer immediately before any user code runs.
-      // Use the ephemeral flag passed by the caller.
-      const actualEphemeral = ephemeral ?? false;
-      await this._commandInteraction.deferReply(
-        actualEphemeral ? { flags: MessageFlags.Ephemeral } : {}
+      // Resolve ephemeral from the hierarchy using entryEphemeral at the
+      // explicit level (same priority as setEphemeral on the builder), since
+      // we cannot read the definition before deferring.
+      const entryBehavior = interactionOptions?.entryEphemeral !== undefined
+        ? { explicit: { ephemeral: interactionOptions.entryEphemeral } }
+        : undefined;
+      const resolved = resolveBehavior(
+        entryBehavior,
+        this._sessionBehavior,
+        this._engine.globalBehavior
       );
-      this._renderer.seedDeferEphemeral(actualEphemeral);
+      await this._commandInteraction.deferReply(
+        resolved.ephemeral ? { flags: MessageFlags.Ephemeral } : {}
+      );
+      this._renderer.seedDeferEphemeral(resolved.ephemeral);
       await this.navigateTo(menuName, options);
     } else {
-      // Sync factory: run it first to read ephemeral from setEphemeral(),
-      // then defer with the correct flag before running setup/onEnter.
+      // Sync factory: run it first so setEphemeral() on the builder is read,
+      // then resolve the full hierarchy before deferring.
       const definition = factory(this, options) as MenuDefinition;
-      const actualEphemeral = definition.ephemeral;
-      await this._commandInteraction.deferReply(
-        actualEphemeral ? { flags: MessageFlags.Ephemeral } : {}
+      const resolved = resolveBehavior(
+        definition.behavior,
+        this._sessionBehavior,
+        this._engine.globalBehavior
       );
-      this._renderer.seedDeferEphemeral(actualEphemeral);
+      await this._commandInteraction.deferReply(
+        resolved.ephemeral ? { flags: MessageFlags.Ephemeral } : {}
+      );
+      this._renderer.seedDeferEphemeral(resolved.ephemeral);
       // Replicate the initial navigateTo steps (no previous menu to leave)
       this._currentOptions = options;
       const instance = new MenuInstance(definition, this.id);
@@ -542,7 +563,11 @@ export class MenuSession implements MenuSessionLike {
     if (!this._currentMenu) return;
 
     const ctx = this.buildContext(this._currentMenu);
-    const ephemeral = this._currentMenu.definition.ephemeral;
+    const { ephemeral } = resolveBehavior(
+      this._currentMenu.definition.behavior,
+      this._sessionBehavior,
+      this._engine.globalBehavior
+    );
 
     // beforeRender hook
     await this._lifecycleManager.emit(

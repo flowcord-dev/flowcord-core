@@ -14,7 +14,7 @@ export type { FlowCordClient } from './FlowCordClient';
 
 // Engine
 export { MenuEngine, MenuSession } from './engine';
-export type { MenuEngineConfig } from './engine';
+export type { MenuEngineConfig, HandleInteractionOptions } from './engine';
 
 // Menu system
 export { MenuBuilder, MenuInstance, MenuRenderer } from './menu';
@@ -127,3 +127,9 @@ export type {
 
 export type { MenuEnvironment } from './types';
 export type { ComponentInteraction, AnySessionInteraction } from './types';
+export type {
+  BehaviorConfig,
+  BehaviorPolicy,
+  MenuBehavior,
+  ResolvedBehavior,
+} from './types';

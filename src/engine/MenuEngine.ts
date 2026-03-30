@@ -10,6 +10,7 @@ import {
   type MessageComponentInteraction,
 } from 'discord.js';
 import type { FlowCordClient } from '../FlowCordClient';
+import type { BehaviorPolicy } from '../types/behavior';
 import type { CreateMenuDefinitionFn } from '../registry/MenuRegistry';
 import { MenuRegistry } from '../registry/MenuRegistry';
 import { ActionRegistry } from '../registry/ActionRegistry';
@@ -27,6 +28,11 @@ export interface MenuEngineConfig {
   timeout?: number;
   /** Enable navigation tracing (default: false) */
   enableTracing?: boolean;
+  /**
+   * Global behavior policy. Defaults apply when no menu or session declares a
+   * value. Overrides apply regardless of what menus or sessions declare.
+   */
+  behavior?: BehaviorPolicy;
 }
 
 const getErrorMessage = (error: unknown): string => {
@@ -79,6 +85,25 @@ const defaultOnError = async (
   }
 };
 
+/**
+ * Options passed to handleInteraction for a specific invocation.
+ */
+export interface HandleInteractionOptions {
+  /**
+   * Ephemeral flag for the entry menu's initial deferReply.
+   * Required for async factory functions — the framework must defer before
+   * awaiting the factory, so it cannot read setEphemeral() in time.
+   * For sync factories, setEphemeral() on the builder is sufficient.
+   */
+  entryEphemeral?: boolean;
+  /**
+   * Session-level behavior policy. Defaults apply when the menu does not
+   * declare a value. Overrides apply regardless of what the menu declares,
+   * but still yield to global overrides.
+   */
+  behavior?: BehaviorPolicy;
+}
+
 export class MenuEngine {
   readonly menuRegistry: MenuRegistry;
   readonly actionRegistry: ActionRegistry;
@@ -110,6 +135,10 @@ export class MenuEngine {
     return this._config.timeout ?? 120_000;
   }
 
+  get globalBehavior(): BehaviorPolicy | undefined {
+    return this._config.behavior;
+  }
+
   /** Number of currently active sessions. */
   get activeSessionCount(): number {
     return this._sessions.size;
@@ -132,12 +161,12 @@ export class MenuEngine {
     interaction: ChatInputCommandInteraction,
     menuName: string,
     options?: Record<string, unknown>,
-    ephemeral?: boolean
+    interactionOptions?: HandleInteractionOptions
   ): Promise<void> {
     const session = this.createSession(interaction);
 
     try {
-      await session.initialize(menuName, options, ephemeral);
+      await session.initialize(menuName, options, interactionOptions);
     } catch (error) {
       this.removeSession(session.id);
       console.error(`[FlowCord] Error in session ${session.id}`, error);
