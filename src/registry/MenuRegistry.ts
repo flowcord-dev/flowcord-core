@@ -36,6 +36,7 @@ export interface MenuDefinition<TCtx = MenuContext> {
   isTrackedInHistory: boolean;
   isCancellable: boolean;
   isReturnable: boolean;
+  ephemeral: boolean;
   preserveStateOnReturn: boolean;
   fallbackMenu?: string;
   fallbackMenuOptions?: Record<string, unknown>;

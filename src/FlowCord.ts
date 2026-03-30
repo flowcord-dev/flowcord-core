@@ -50,13 +50,23 @@ export class FlowCord {
 
   /**
    * Handle an incoming slash command interaction.
+   *
+   * @param ephemeral - Make the initial reply visible only to the invoking
+   *   user. Only required when the menu's factory function is async — for
+   *   sync factories, call `.setEphemeral()` on the MenuBuilder instead.
    */
   async handleInteraction(
     interaction: ChatInputCommandInteraction,
     menuName: string,
-    options?: Record<string, unknown>
+    options?: Record<string, unknown>,
+    ephemeral?: boolean
   ): Promise<void> {
-    return this._engine.handleInteraction(interaction, menuName, options);
+    return this._engine.handleInteraction(
+      interaction,
+      menuName,
+      options,
+      ephemeral
+    );
   }
 
   /**

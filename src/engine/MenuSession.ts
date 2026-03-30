@@ -7,13 +7,14 @@
  * Manages the interaction loop lifecycle, state, navigation stack,
  */
 import { randomUUID } from 'crypto';
-import type {
-  ChatInputCommandInteraction,
-  Client,
-  Interaction,
-  Message,
-  MessageComponentInteraction,
-  ModalSubmitInteraction,
+import {
+  MessageFlags,
+  type ChatInputCommandInteraction,
+  type Client,
+  type Interaction,
+  type Message,
+  type MessageComponentInteraction,
+  type ModalSubmitInteraction,
 } from 'discord.js';
 import type {
   MenuContext,
@@ -29,7 +30,20 @@ import { MenuInstance } from '../menu/MenuInstance';
 import { MenuRenderer } from '../menu/MenuRenderer';
 import { LifecycleManager } from '../lifecycle/LifecycleManager';
 import { ComponentIdManager } from '../components/ComponentIdManager';
+import type { MenuDefinition } from '../registry/MenuRegistry';
 import type { MenuEngine } from './MenuEngine';
+
+/**
+ * Returns true if a factory function is declared async.
+ * Used to decide whether deferReply can wait for the factory result
+ * (sync) or must fire immediately with a caller-provided ephemeral flag
+ * (async, to stay within Discord's 3-second acknowledgement window).
+ */
+function isAsyncFactory(fn: unknown): boolean {
+  return (
+    typeof fn === 'function' && fn.constructor.name === 'AsyncFunction'
+  );
+}
 
 /** Continuation registered by openSubMenu — fired when the sub-menu calls goBack. */
 interface Continuation {
@@ -126,13 +140,50 @@ export class MenuSession implements MenuSessionLike {
 
   /**
    * Initialize the session: defer reply, create initial menu, enter main loop.
+   *
+   * For sync factory functions, the factory is run first so that
+   * `setEphemeral()` on the MenuBuilder is respected without any extra params.
+   * For async factory functions, `ephemeral` must be passed explicitly since
+   * we must defer before awaiting the factory to stay within Discord's 3-second
+   * acknowledgement window.
    */
   async initialize(
     menuName: string,
-    options?: Record<string, unknown>
+    options?: Record<string, unknown>,
+    ephemeral?: boolean
   ): Promise<void> {
-    await this._commandInteraction.deferReply();
-    await this.navigateTo(menuName, options);
+    const factory = this._engine.menuRegistry.getFactory(menuName);
+    if (!factory) {
+      throw new Error(`Menu "${menuName}" is not registered.`);
+    }
+
+    if (isAsyncFactory(factory)) {
+      // Async factory: defer immediately before any user code runs.
+      // Use the ephemeral flag passed by the caller.
+      await this._commandInteraction.deferReply(
+        ephemeral ? { flags: MessageFlags.Ephemeral } : {}
+      );
+      await this.navigateTo(menuName, options);
+    } else {
+      // Sync factory: run it first to read ephemeral from setEphemeral(),
+      // then defer with the correct flag before running setup/onEnter.
+      const definition = factory(this, options) as MenuDefinition;
+      await this._commandInteraction.deferReply(
+        definition.ephemeral ? { flags: MessageFlags.Ephemeral } : {}
+      );
+      // Replicate the initial navigateTo steps (no previous menu to leave)
+      this._currentOptions = options;
+      const instance = new MenuInstance(definition, this.id);
+      this._currentMenu = instance;
+      if (definition.setup) {
+        const ctx = this.buildContext(instance);
+        await definition.setup(ctx);
+      }
+      const ctx = this.buildContext(instance);
+      await this._lifecycleManager.emit('onEnter', ctx, definition.hooks);
+      this._didNavigate = true;
+    }
+
     await this.processMenus();
 
     // Clean up after loop exits
@@ -487,6 +538,7 @@ export class MenuSession implements MenuSessionLike {
     if (!this._currentMenu) return;
 
     const ctx = this.buildContext(this._currentMenu);
+    const ephemeral = this._currentMenu.definition.ephemeral;
 
     // beforeRender hook
     await this._lifecycleManager.emit(
@@ -499,7 +551,8 @@ export class MenuSession implements MenuSessionLike {
     await this._renderer.render(
       this._currentMenu,
       ctx,
-      this._commandInteraction
+      this._commandInteraction,
+      ephemeral
     );
 
     // afterRender hook
