@@ -55,8 +55,8 @@ FlowCord replaces the boilerplate of managing component collectors, interaction 
 - **Sub-menus & continuations** — Parent–child menu patterns with typed result passing via `openSubMenu()` and `complete()`
 - **Guards & pipelines** — Composable action middleware for permission checks and validation
 - **Modal support** — Single or multiple modals per menu with automatic re-rendering after submission
-- **Ephemeral menu support** — Per-menu or session-wide ephemeral control, with automatic transition handling between ephemeral and non-ephemeral menus
-- **Behavior policy system** — Configurable defaults and overrides at global, session, and builder levels; extensible to future behaviors
+- **Ephemeral menu support** — Per-menu or session-wide ephemeral control, with configurable transition handling between ephemeral and non-ephemeral menus
+- **Behavior policy system** — Configurable defaults and overrides at global, session, and builder levels for `ephemeral`, `updateMode`, `oldMessageDisposal`, and more; extensible to future behaviors
 - **Session timeout** — Configurable inactivity timeout with automatic cleanup
 - **Navigation tracing** — Optional debug tracing of all menu transitions
 
@@ -632,61 +632,106 @@ flowcord.registerMenu('async-menu', async (session) => {
 await flowcord.handleInteraction(interaction, 'async-menu', {}, { entryEphemeral: true });
 ```
 
-**Transitions**: When navigating between ephemeral and non-ephemeral menus, FlowCord handles the transition automatically — sending a new `followUp` message when switching to ephemeral, and stripping components from the outgoing message when leaving ephemeral (Discord does not allow deleting ephemeral messages via REST).
+**Transitions**: When navigating between ephemeral and non-ephemeral menus, FlowCord handles the transition automatically — sending a new `followUp` message and disposing the outgoing message according to the `oldMessageDisposal` behavior (see [Behavior Policy](#behavior-policy) below). The default is to strip interactive components from the old message. Ephemeral messages cannot be deleted via Discord REST; the `ephemeralFallbackDisposal` behavior controls what happens in that case.
 
 ---
 
 ### Behavior Policy
 
-The behavior policy system controls menu behaviors (currently ephemeral) at three levels with a clear resolution hierarchy:
+The behavior policy system controls menu behaviors at multiple levels with a clear resolution hierarchy:
 
 ```
 globalOverride → sessionOverride → classOverride (_setOverrideBehavior)
-  → explicit (setEphemeral / entryEphemeral)
-    → classDefault (_setDefaultBehavior) → sessionDefault → globalDefault → false
+  → explicit (setEphemeral / setUpdateMode / setOldMessageDisposal / entryEphemeral)
+    → classDefault (_setDefaultBehavior) → sessionDefault → globalDefault → framework default
 ```
 
 Each level has a `default` (applied when no more-specific level declares a value) and an `override` (applied regardless of more-specific declarations, but still yielding to higher-level overrides).
 
-**Global policy** — set on the `FlowCord` constructor, applies to all sessions:
+#### Configurable behaviors
+
+| Field | Default | Description |
+|---|---|---|
+| `ephemeral` | `false` | Whether the menu reply is visible only to the invoking user |
+| `updateMode` | `'editInPlace'` | `'editInPlace'`: edit/update the existing message in-place. `'postNew'`: dispose the old message and post a new one after every interaction, keeping the active menu at the bottom of the chat |
+| `oldMessageDisposal` | `'stripComponents'` | How the old message is treated when it must be replaced. `'stripComponents'`: remove components, leave content. `'delete'`: delete the message (falls back to `ephemeralFallbackDisposal` for ephemeral messages). `'replaceWithClosed'`: replace content with `closedMessage` |
+| `ephemeralFallbackDisposal` | `'stripComponents'` | Fallback for `'delete'` when the message is ephemeral (Discord cannot delete ephemeral messages via REST). `'stripComponents'` or `'replaceWithClosed'` |
+| `closedMessage` | `'*Menu closed*'` | Content shown when disposal mode is `'replaceWithClosed'` |
+| `deleteUserMessages` | `false` | Whether to attempt deleting the user's typed message (best-effort, requires permissions) after `setMessageHandler` collects it |
+
+#### Global policy
+
+Set on the `FlowCord` constructor; applies to all sessions:
 
 ```ts
 const flowcord = new FlowCord({
   client,
   behavior: {
-    default:  { ephemeral: false }, // applies when nothing else declares ephemeral
+    default:  { ephemeral: false, updateMode: 'editInPlace' },
     override: { ephemeral: true },  // forces all menus ephemeral regardless of builder
   },
 });
 ```
 
-**Session policy** — set per-invocation via `handleInteraction`, applies to all menus in that session:
+#### Session policy
+
+Set per-invocation via `handleInteraction`; applies to all menus in that session:
 
 ```ts
 await flowcord.handleInteraction(interaction, 'my-menu', {}, {
-  entryEphemeral: true,                        // async factory timing; explicit priority
+  entryEphemeral: true, // async factory timing; explicit priority
   behavior: {
-    default:  { ephemeral: true },   // session-wide default (menus without setEphemeral also become ephemeral)
-    override: { ephemeral: false },  // session-wide override (wins over builder setEphemeral)
+    default:  { ephemeral: true, oldMessageDisposal: 'delete' },
+    override: { updateMode: 'postNew' }, // all menus in this session always repost
   },
 });
 ```
 
-**Subclass defaults and overrides** — `MenuBuilder` exposes two protected methods for builder subclasses to establish class-level behavior without exposing it as a per-menu public API:
+#### Builder-level setters
+
+```ts
+new MenuBuilder(session, 'my-menu')
+  .setEphemeral()
+  .setUpdateMode('postNew')
+  .setOldMessageDisposal('delete', {
+    ephemeralFallback: 'replaceWithClosed',
+    closedMessage: '*This menu has moved.*',
+    deleteUserMessages: true,
+  })
+  .setEmbeds(() => [...])
+  .build()
+```
+
+`setOldMessageDisposal` uses discriminated overloads — `ephemeralFallback` and `closedMessage` are only available on the variants where they apply:
+
+```ts
+// 'delete' variant — ephemeralFallback, closedMessage, deleteUserMessages available
+.setOldMessageDisposal('delete', { ephemeralFallback: 'replaceWithClosed', closedMessage: '...' })
+
+// 'replaceWithClosed' variant — closedMessage and deleteUserMessages available
+.setOldMessageDisposal('replaceWithClosed', { closedMessage: 'Session ended.' })
+
+// 'stripComponents' variant — only deleteUserMessages available
+.setOldMessageDisposal('stripComponents', { deleteUserMessages: true })
+```
+
+#### Subclass defaults and overrides
+
+`MenuBuilder` exposes two protected methods for builder subclasses to establish class-level behavior without exposing it as a per-menu public API:
 
 ```ts
 class AdminMenuBuilder extends MenuBuilder {
   constructor(session, name, options) {
     super(session, name, options);
-    // Default: menus are ephemeral by default; setEphemeral(false) or any policy can override
+    // Default: menus are ephemeral by default unless any policy overrides
     this._setDefaultBehavior({ ephemeral: true });
-    // Override: menus are always ephemeral unless session/global forces otherwise
-    this._setOverrideBehavior({ ephemeral: true });
+    // Override: menus always post new unless session/global forces otherwise
+    this._setOverrideBehavior({ updateMode: 'postNew' });
   }
 }
 ```
 
-**Extensibility**: `BehaviorConfig` is the single extension point. Adding a new behavior (e.g. `replyMode`) only requires a new optional field there — no structural changes to the policy system.
+**Extensibility**: `BehaviorConfig` is the single extension point. Adding a new behavior only requires a new optional field there — no structural changes to the policy system.
 
 ---
 
@@ -735,6 +780,8 @@ const events = flowcord.tracer.events;
 | `.setPreserveStateOnReturn()`    | Any    | Restore previous menu state snapshot when returning via goBack |
 | `.setFallbackMenu(id, options?)` | Any    | Fallback for goBack on empty stack                             |
 | `.setEphemeral(ephemeral?)`      | Any    | Mark menu as ephemeral (visible only to invoking user)         |
+| `.setUpdateMode(mode)`           | Any    | `'editInPlace'` (default) or `'postNew'` (repost after every interaction) |
+| `.setOldMessageDisposal(mode, options?)` | Any | How to handle the old message when replaced; `options` is discriminated by `mode` |
 | `_setDefaultBehavior(config)` *(protected)* | Any    | Subclass hook: class-level defaults, lowest priority in hierarchy        |
 | `_setOverrideBehavior(config)` *(protected)* | Any   | Subclass hook: class-level overrides, wins over explicit but yields to session/global |
 | `.setListPagination(options)`    | Any    | Configure list pagination                                      |
