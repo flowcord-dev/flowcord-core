@@ -19,6 +19,7 @@ import {
   MediaGalleryBuilder,
   MediaGalleryItemBuilder,
   MessageFlags,
+  Routes,
   SectionBuilder,
   SeparatorBuilder,
   SeparatorSpacingSize,
@@ -71,6 +72,7 @@ export class MenuRenderer {
   private _activeMessage: Message | null = null;
   private _activeMessageMode: RenderMode | null = null;
   private _activeMessageEphemeral = false;
+  private _activeMessageIsFollowUp = false;
   private _lastUpdateSource: LastUpdateSource | null = null;
 
   /** The last component interaction received — used for .update() */
@@ -476,7 +478,9 @@ export class MenuRenderer {
       try {
         if (this._activeMessageEphemeral) {
           // Old message was ephemeral: edit via the interaction token
-          await commandInteraction.editReply({ components: [] });
+          await this.editEphemeralMessage(commandInteraction, {
+            components: [],
+          });
         } else {
           // Old message was non-ephemeral: edit the Message object directly
           await this._activeMessage!.edit({ components: [] });
@@ -490,20 +494,37 @@ export class MenuRenderer {
       const newMessage = await commandInteraction.followUp(followUpPayload);
       this._activeMessage = newMessage as Message;
       this._activeMessageEphemeral = ephemeral;
+      this._activeMessageIsFollowUp = true;
       this._lastComponentInteraction = null;
       this._lastUpdateSource = 'followUp';
     } else if (modeChanged) {
-      // Mode transition — send new message via followUp, delete old
-      const newMessage = await commandInteraction.followUp(discordPayload);
-      await this.deleteOldMessage();
+      // Mode transition — send new message via followUp, delete or strip old.
+      if (this._activeMessageEphemeral) {
+        // Ephemeral messages cannot be deleted — strip components instead
+        try {
+          await this.editEphemeralMessage(commandInteraction, {
+            components: [],
+          });
+        } catch {
+          // Best-effort
+        }
+      } else {
+        await this.deleteOldMessage();
+      }
+      const followUpPayload = ephemeral
+        ? { ...discordPayload, flags: MessageFlags.Ephemeral }
+        : discordPayload;
+      const newMessage = await commandInteraction.followUp(followUpPayload);
       this._activeMessage = newMessage as Message;
       this._activeMessageEphemeral = ephemeral;
+      this._activeMessageIsFollowUp = true;
       this._lastUpdateSource = 'followUp';
     } else if (this._isReset) {
       // After message collection — use followUp
       const newMessage = await commandInteraction.followUp(discordPayload);
       this._activeMessage = newMessage as Message;
       this._activeMessageEphemeral = ephemeral;
+      this._activeMessageIsFollowUp = true;
       this._isReset = false;
       this._lastUpdateSource = 'followUp';
     } else if (this._lastComponentInteraction) {
@@ -514,9 +535,9 @@ export class MenuRenderer {
     } else if (this._activeMessage) {
       // Existing message — edit it.
       // Ephemeral messages cannot be edited via Message.edit() (REST);
-      // they must be updated through the original interaction token.
+      // route through the interaction token instead.
       if (this._activeMessageEphemeral) {
-        await commandInteraction.editReply(discordPayload);
+        await this.editEphemeralMessage(commandInteraction, discordPayload);
       } else {
         await this._activeMessage.edit(discordPayload);
       }
@@ -526,6 +547,7 @@ export class MenuRenderer {
       const message = await commandInteraction.editReply(discordPayload);
       this._activeMessage = message as Message;
       this._activeMessageEphemeral = ephemeral;
+      this._activeMessageIsFollowUp = false;
       this._lastUpdateSource = 'editReply';
     }
 
@@ -550,6 +572,31 @@ export class MenuRenderer {
       components: payload.components ?? [],
       content: payload.content ?? '',
     };
+  }
+
+  /**
+   * Edit the current ephemeral message via the appropriate interaction token
+   * endpoint. Ephemeral messages cannot be edited via Message.edit() (REST).
+   *
+   * - Original deferred reply → editReply() targets @original
+   * - FollowUp message → PATCH webhookMessage(id) targets the specific message
+   */
+  private async editEphemeralMessage(
+    commandInteraction: ChatInputCommandInteraction,
+    data: Record<string, unknown>
+  ): Promise<void> {
+    if (this._activeMessageIsFollowUp && this._activeMessage) {
+      await commandInteraction.client.rest.patch(
+        Routes.webhookMessage(
+          commandInteraction.applicationId,
+          commandInteraction.token,
+          this._activeMessage.id
+        ),
+        { body: data }
+      );
+    } else {
+      await commandInteraction.editReply(data);
+    }
   }
 
   private async deleteOldMessage(): Promise<void> {
