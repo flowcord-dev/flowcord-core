@@ -131,12 +131,13 @@ export class MenuEngine {
   async handleInteraction(
     interaction: ChatInputCommandInteraction,
     menuName: string,
-    options?: Record<string, unknown>
+    options?: Record<string, unknown>,
+    ephemeral?: boolean
   ): Promise<void> {
     const session = this.createSession(interaction);
 
     try {
-      await session.initialize(menuName, options);
+      await session.initialize(menuName, options, ephemeral);
     } catch (error) {
       this.removeSession(session.id);
       console.error(`[FlowCord] Error in session ${session.id}`, error);

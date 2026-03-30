@@ -76,6 +76,7 @@ export class MenuBuilder<
   protected _isCancellable = false;
   protected _isReturnable = false;
   protected _preserveStateOnReturn = false;
+  protected _ephemeral = false;
   protected _fallbackMenu?: string;
   protected _fallbackMenuOptions?: Record<string, unknown>;
 
@@ -222,6 +223,23 @@ export class MenuBuilder<
    */
   setPreserveStateOnReturn(): this {
     this._preserveStateOnReturn = true;
+    return this;
+  }
+
+  /**
+   * Make this menu visible only to the invoking user (ephemeral).
+   *
+   * For the entry menu (first menu opened by a slash command), this works
+   * automatically when the factory function is synchronous. For async factory
+   * functions, pass `{ ephemeral: true }` to `handleInteraction()` instead —
+   * the framework must defer the interaction before awaiting the factory.
+   *
+   * For navigation targets, this always works regardless of factory type.
+   * When navigating between menus with different ephemeral states, the
+   * framework posts a new message and strips components from the old one.
+   */
+  setEphemeral(): this {
+    this._ephemeral = true;
     return this;
   }
 
@@ -396,6 +414,7 @@ export class MenuBuilder<
         | ((ctx: MenuContext, response: string) => Awaitable<void>)
         | undefined,
       listPagination: this._listPagination as ListPaginationOptions<MenuContext> | undefined,
+      ephemeral: this._ephemeral,
       isTrackedInHistory: this._isTrackedInHistory,
       isCancellable: this._isCancellable,
       isReturnable: this._isReturnable,
