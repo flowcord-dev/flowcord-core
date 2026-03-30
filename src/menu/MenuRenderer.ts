@@ -70,6 +70,7 @@ export class MenuRenderer {
 
   private _activeMessage: Message | null = null;
   private _activeMessageMode: RenderMode | null = null;
+  private _activeMessageEphemeral = false;
   private _lastUpdateSource: LastUpdateSource | null = null;
 
   /** The last component interaction received — used for .update() */
@@ -103,7 +104,8 @@ export class MenuRenderer {
   async render(
     menuInstance: MenuInstance,
     ctx: MenuContext,
-    commandInteraction: ChatInputCommandInteraction
+    commandInteraction: ChatInputCommandInteraction,
+    ephemeral: boolean
   ): Promise<void> {
     const definition = menuInstance.definition;
     const newMode = definition.mode;
@@ -120,7 +122,7 @@ export class MenuRenderer {
     }
 
     // Send or update the message based on current state
-    await this.sendPayload(payload, newMode, commandInteraction);
+    await this.sendPayload(payload, newMode, commandInteraction, ephemeral);
   }
 
   /**
@@ -150,7 +152,7 @@ export class MenuRenderer {
     try {
       if (this._lastComponentInteraction && !this._isReset) {
         await this._lastComponentInteraction.update(payload);
-      } else if (this._activeMessage) {
+      } else if (this._activeMessage && !this._activeMessageEphemeral) {
         await this._activeMessage.edit(payload);
       } else {
         await commandInteraction.editReply(payload);
@@ -184,7 +186,7 @@ export class MenuRenderer {
     try {
       if (this._lastComponentInteraction && !this._isReset) {
         await this._lastComponentInteraction.update(payload);
-      } else if (this._activeMessage) {
+      } else if (this._activeMessage && !this._activeMessageEphemeral) {
         await this._activeMessage.edit(payload);
       } else {
         await commandInteraction.editReply(payload);
@@ -457,23 +459,51 @@ export class MenuRenderer {
   private async sendPayload(
     payload: RenderPayload,
     newMode: RenderMode,
-    commandInteraction: ChatInputCommandInteraction
+    commandInteraction: ChatInputCommandInteraction,
+    ephemeral: boolean
   ): Promise<void> {
     const modeChanged =
       this._activeMessageMode !== null && this._activeMessageMode !== newMode;
+    const ephemeralChanged =
+      this._activeMessage !== null &&
+      this._activeMessageEphemeral !== ephemeral;
 
     const discordPayload = this.buildDiscordPayload(payload, newMode);
 
-    if (modeChanged) {
+    if (ephemeralChanged) {
+      // Ephemeral state changed — strip components from the old message so it
+      // becomes non-interactable, then send the new menu as a followUp.
+      try {
+        if (this._activeMessageEphemeral) {
+          // Old message was ephemeral: edit via the interaction token
+          await commandInteraction.editReply({ components: [] });
+        } else {
+          // Old message was non-ephemeral: edit the Message object directly
+          await this._activeMessage!.edit({ components: [] });
+        }
+      } catch {
+        // Best-effort — message may have expired
+      }
+      const followUpPayload = ephemeral
+        ? { ...discordPayload, flags: MessageFlags.Ephemeral }
+        : discordPayload;
+      const newMessage = await commandInteraction.followUp(followUpPayload);
+      this._activeMessage = newMessage as Message;
+      this._activeMessageEphemeral = ephemeral;
+      this._lastComponentInteraction = null;
+      this._lastUpdateSource = 'followUp';
+    } else if (modeChanged) {
       // Mode transition — send new message via followUp, delete old
       const newMessage = await commandInteraction.followUp(discordPayload);
       await this.deleteOldMessage();
       this._activeMessage = newMessage as Message;
+      this._activeMessageEphemeral = ephemeral;
       this._lastUpdateSource = 'followUp';
     } else if (this._isReset) {
       // After message collection — use followUp
       const newMessage = await commandInteraction.followUp(discordPayload);
       this._activeMessage = newMessage as Message;
+      this._activeMessageEphemeral = ephemeral;
       this._isReset = false;
       this._lastUpdateSource = 'followUp';
     } else if (this._lastComponentInteraction) {
@@ -489,6 +519,7 @@ export class MenuRenderer {
       // First render — editReply on the deferred reply
       const message = await commandInteraction.editReply(discordPayload);
       this._activeMessage = message as Message;
+      this._activeMessageEphemeral = ephemeral;
       this._lastUpdateSource = 'editReply';
     }
 
