@@ -252,6 +252,80 @@ export class MenuBuilder<
   }
 
   /**
+   * Set how the menu message is updated after each component interaction.
+   * - 'editInPlace': edit/update the existing message in-place (default)
+   * - 'postNew': dispose the old message and post a new one, keeping the
+   *   active menu at the bottom of the chat log
+   */
+  setUpdateMode(mode: 'editInPlace' | 'postNew'): this {
+    this._behavior = {
+      ...this._behavior,
+      explicit: { ...this._behavior.explicit, updateMode: mode },
+    };
+    return this;
+  }
+
+  /**
+   * Set how the old message is treated when it must be replaced (on
+   * ephemeral-state changes, render-mode changes, updateMode 'postNew',
+   * and after message collection via setMessageHandler).
+   *
+   * The second argument is a discriminated options object — available
+   * options depend on the disposal mode:
+   * - 'delete': accepts `ephemeralFallback` (what to do when the message is
+   *   ephemeral and cannot be deleted), `closedMessage`, and `deleteUserMessages`
+   * - 'replaceWithClosed': accepts `closedMessage` and `deleteUserMessages`
+   * - 'stripComponents': accepts `deleteUserMessages`
+   */
+  setOldMessageDisposal(
+    mode: 'delete',
+    options?: {
+      ephemeralFallback?: 'stripComponents' | 'replaceWithClosed';
+      closedMessage?: string;
+      deleteUserMessages?: boolean;
+    }
+  ): this;
+  setOldMessageDisposal(
+    mode: 'replaceWithClosed',
+    options?: {
+      closedMessage?: string;
+      deleteUserMessages?: boolean;
+    }
+  ): this;
+  setOldMessageDisposal(
+    mode: 'stripComponents',
+    options?: {
+      deleteUserMessages?: boolean;
+    }
+  ): this;
+  setOldMessageDisposal(
+    mode: 'stripComponents' | 'delete' | 'replaceWithClosed',
+    options?: {
+      ephemeralFallback?: 'stripComponents' | 'replaceWithClosed';
+      closedMessage?: string;
+      deleteUserMessages?: boolean;
+    }
+  ): this {
+    this._behavior = {
+      ...this._behavior,
+      explicit: {
+        ...this._behavior.explicit,
+        oldMessageDisposal: mode,
+        ...(options?.ephemeralFallback !== undefined && {
+          ephemeralFallbackDisposal: options.ephemeralFallback,
+        }),
+        ...(options?.closedMessage !== undefined && {
+          closedMessage: options.closedMessage,
+        }),
+        ...(options?.deleteUserMessages !== undefined && {
+          deleteUserMessages: options.deleteUserMessages,
+        }),
+      },
+    };
+    return this;
+  }
+
+  /**
    * Set class-level behavior defaults for this builder subclass.
    *
    * Called from a subclass constructor to establish defaults that apply when
