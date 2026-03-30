@@ -34,6 +34,7 @@ import type { MenuDefinition } from '../registry/MenuRegistry';
 import {
   resolveBehavior,
   type BehaviorPolicy,
+  type ResolvedBehavior,
 } from '../types/behavior';
 import type { HandleInteractionOptions } from './MenuEngine';
 import type { MenuEngine } from './MenuEngine';
@@ -570,6 +571,14 @@ export class MenuSession implements MenuSessionLike {
       this._didNavigate = false;
       this._didHardRefresh = false;
 
+      // Resolve behavior for this iteration — used by both the modal path and
+      // the normal render path so all interaction collectors share the same config.
+      const resolved = resolveBehavior(
+        this._currentMenu.definition.behavior,
+        this._sessionBehavior,
+        this._engine.globalBehavior
+      );
+
       // --- Pending modal (action triggered openModal in previous iteration) ---
       // The interaction that triggered the modal already called showModal(),
       // so we skip rendering and go straight to awaiting the modal submit.
@@ -577,7 +586,7 @@ export class MenuSession implements MenuSessionLike {
         this._currentMenu.isModalActive &&
         this._currentMenu.activeModal
       ) {
-        const outcome = await this.awaitModalInteraction(timeout);
+        const outcome = await this.awaitModalInteraction(timeout, resolved);
         if (this._isCancelled || this._isCompleted) break;
         if (this._didNavigate) continue;
         if (outcome === 'timeout') break;
@@ -585,7 +594,7 @@ export class MenuSession implements MenuSessionLike {
       }
 
       // --- Render cycle ---
-      await this.renderCurrentMenu();
+      await this.renderCurrentMenu(resolved);
 
       // Check if the session ended during rendering (e.g., onEnter navigated away)
       if (this._isCancelled || this._isCompleted) break;
@@ -595,9 +604,9 @@ export class MenuSession implements MenuSessionLike {
       const responseType = this._currentMenu.getResponseType();
 
       if (responseType === 'message') {
-        await this.awaitMessageReply(timeout);
+        await this.awaitMessageReply(timeout, resolved);
       } else if (responseType === 'mixed') {
-        await this.awaitMixedInteraction(timeout);
+        await this.awaitMixedInteraction(timeout, resolved);
       } else {
         await this.awaitComponentInteraction(timeout);
       }
@@ -612,17 +621,13 @@ export class MenuSession implements MenuSessionLike {
   }
 
   /**
-   * Execute a full render cycle for the current menu.
+   * Execute a full render cycle for the current menu using the pre-resolved
+   * behavior from the current loop iteration.
    */
-  private async renderCurrentMenu(): Promise<void> {
+  private async renderCurrentMenu(resolved: ResolvedBehavior): Promise<void> {
     if (!this._currentMenu) return;
 
     const ctx = this.buildContext(this._currentMenu);
-    const { ephemeral } = resolveBehavior(
-      this._currentMenu.definition.behavior,
-      this._sessionBehavior,
-      this._engine.globalBehavior,
-    );
 
     // beforeRender hook
     await this._lifecycleManager.emit(
@@ -636,7 +641,7 @@ export class MenuSession implements MenuSessionLike {
       this._currentMenu,
       ctx,
       this._commandInteraction,
-      ephemeral,
+      resolved,
     );
 
     // afterRender hook
@@ -687,7 +692,7 @@ export class MenuSession implements MenuSessionLike {
   /**
    * Await a text message reply.
    */
-  private async awaitMessageReply(timeout: number): Promise<void> {
+  private async awaitMessageReply(timeout: number, resolved: ResolvedBehavior): Promise<void> {
     const channel = this._commandInteraction.channel;
     if (!channel || !('awaitMessages' in channel)) return;
 
@@ -703,14 +708,16 @@ export class MenuSession implements MenuSessionLike {
       const message = collected.first();
       if (!message || !this._currentMenu) return;
 
-      // Delete the user's message for clean UX (best-effort)
-      try {
-        await message.delete();
-      } catch {
-        // May not have permissions
+      // Delete the user's message if configured to do so (best-effort)
+      if (resolved.deleteUserMessages) {
+        try {
+          await message.delete();
+        } catch {
+          // May not have permissions
+        }
       }
 
-      this._renderer.setResetFlag();
+      this._renderer.setMessageCollected(resolved.oldMessageDisposal, resolved.closedMessage);
 
       const ctx = this.buildContext(this._currentMenu);
       if (this._currentMenu.definition.handleMessage) {
@@ -731,6 +738,7 @@ export class MenuSession implements MenuSessionLike {
    */
   private async awaitMixedInteraction(
     timeout: number,
+    resolved: ResolvedBehavior,
   ): Promise<void> {
     const channel = this._commandInteraction.channel;
     const activeMessage = this._renderer[
@@ -804,7 +812,7 @@ export class MenuSession implements MenuSessionLike {
       result.value !== undefined &&
       this._currentMenu
     ) {
-      this._renderer.setResetFlag();
+      this._renderer.setMessageCollected(resolved.oldMessageDisposal, resolved.closedMessage);
 
       const ctx = this.buildContext(this._currentMenu);
       if (this._currentMenu.definition.handleMessage) {
@@ -822,6 +830,7 @@ export class MenuSession implements MenuSessionLike {
    */
   private async awaitModalInteraction(
     timeout: number,
+    resolved: ResolvedBehavior,
   ): Promise<'modal' | 'component' | 'message' | 'timeout'> {
     if (!this._currentMenu) return 'timeout';
 
@@ -949,7 +958,7 @@ export class MenuSession implements MenuSessionLike {
       result.messageContent !== undefined &&
       this._currentMenu
     ) {
-      this._renderer.setResetFlag();
+      this._renderer.setMessageCollected(resolved.oldMessageDisposal, resolved.closedMessage);
       const ctx = this.buildContext(this._currentMenu);
       if (this._currentMenu.definition.handleMessage) {
         await this._currentMenu.definition.handleMessage(

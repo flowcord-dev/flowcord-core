@@ -32,6 +32,7 @@ import {
 } from 'discord.js';
 import type { MenuInstance } from './MenuInstance';
 import type { MenuContext } from '../context/MenuContext';
+import type { ResolvedBehavior } from '../types/behavior';
 import type {
   ActionRowConfig,
   ButtonConfig,
@@ -88,13 +89,28 @@ export class MenuRenderer {
   /** Whether we need to use followUp instead of editReply (after message collection) */
   private _isReset = false;
 
+  /**
+   * Disposal config stored by setMessageCollected(), consumed on the next
+   * sendPayload call when _isReset is true.
+   */
+  private _pendingDisposal: 'stripComponents' | 'delete' | 'replaceWithClosed' = 'stripComponents';
+  private _pendingClosedMessage = '*Menu closed*';
+
   get activeMessageMode(): RenderMode | null {
     return this._activeMessageMode;
   }
 
-  /** Set after message collection so the next render uses followUp. */
-  setResetFlag(): void {
+  /**
+   * Called after message collection so the next render disposes the old
+   * message and posts a new one via followUp.
+   */
+  setMessageCollected(
+    disposal: 'stripComponents' | 'delete' | 'replaceWithClosed',
+    closedMessage: string
+  ): void {
     this._isReset = true;
+    this._pendingDisposal = disposal;
+    this._pendingClosedMessage = closedMessage;
   }
 
   /**
@@ -126,7 +142,7 @@ export class MenuRenderer {
     menuInstance: MenuInstance,
     ctx: MenuContext,
     commandInteraction: ChatInputCommandInteraction,
-    ephemeral: boolean,
+    resolved: ResolvedBehavior,
   ): Promise<void> {
     const definition = menuInstance.definition;
     const newMode = definition.mode;
@@ -143,12 +159,7 @@ export class MenuRenderer {
     }
 
     // Send or update the message based on current state
-    await this.sendPayload(
-      payload,
-      newMode,
-      commandInteraction,
-      ephemeral,
-    );
+    await this.sendPayload(payload, newMode, commandInteraction, resolved);
   }
 
   /**
@@ -531,8 +542,9 @@ export class MenuRenderer {
     payload: RenderPayload,
     newMode: RenderMode,
     commandInteraction: ChatInputCommandInteraction,
-    ephemeral: boolean,
+    resolved: ResolvedBehavior,
   ): Promise<void> {
+    const { ephemeral } = resolved;
     const modeChanged =
       this._activeMessageMode !== null &&
       this._activeMessageMode !== newMode;
@@ -543,21 +555,8 @@ export class MenuRenderer {
     const discordPayload = this.buildDiscordPayload(payload, newMode);
 
     if (ephemeralChanged) {
-      // Ephemeral state changed — strip components from the old message so it
-      // becomes non-interactable, then send the new menu as a followUp.
-      try {
-        if (this._activeMessageEphemeral) {
-          // Old message was ephemeral: edit via the interaction token
-          await this.editEphemeralMessage(commandInteraction, {
-            components: [],
-          });
-        } else {
-          // Old message was non-ephemeral: edit the Message object directly
-          await this._activeMessage!.edit({ components: [] });
-        }
-      } catch {
-        // Best-effort — message may have expired
-      }
+      // Ephemeral state changed — dispose old message, send new as followUp.
+      await this.disposeOldMessage(resolved, commandInteraction);
       const followUpPayload = ephemeral
         ? this.makeEphemeral(discordPayload)
         : discordPayload;
@@ -569,19 +568,8 @@ export class MenuRenderer {
       this._lastComponentInteraction = null;
       this._lastUpdateSource = 'followUp';
     } else if (modeChanged) {
-      // Mode transition — send new message via followUp, delete or strip old.
-      if (this._activeMessageEphemeral) {
-        // Ephemeral messages cannot be deleted — strip components instead
-        try {
-          await this.editEphemeralMessage(commandInteraction, {
-            components: [],
-          });
-        } catch {
-          // Best-effort
-        }
-      } else {
-        await this.deleteOldMessage();
-      }
+      // Mode transition — dispose old message, send new as followUp.
+      await this.disposeOldMessage(resolved, commandInteraction);
       const followUpPayload = ephemeral
         ? this.makeEphemeral(discordPayload)
         : discordPayload;
@@ -592,16 +580,35 @@ export class MenuRenderer {
       this._activeMessageIsFollowUp = true;
       this._lastUpdateSource = 'followUp';
     } else if (this._isReset) {
-      // After message collection — use followUp
-      const followUpPayload = ephemeral
-        ? this.makeEphemeral(discordPayload)
-        : discordPayload;
-      const newMessage =
-        await commandInteraction.followUp(followUpPayload);
+      // After message collection — dispose old message and post new as followUp.
+      const pendingDisposal = this._pendingDisposal;
+      const pendingClosedMessage = this._pendingClosedMessage;
+      this._isReset = false;
+      await this.disposeOldMessage(
+        { ...resolved, oldMessageDisposal: pendingDisposal, closedMessage: pendingClosedMessage },
+        commandInteraction,
+      );
+      const followUpPayload = ephemeral ? this.makeEphemeral(discordPayload) : discordPayload;
+      const newMessage = await commandInteraction.followUp(followUpPayload);
       this._activeMessage = newMessage as Message;
       this._activeMessageEphemeral = ephemeral;
       this._activeMessageIsFollowUp = true;
-      this._isReset = false;
+      this._lastUpdateSource = 'followUp';
+    } else if (resolved.updateMode === 'postNew' && this._activeMessage !== null) {
+      // postNew mode — dispose old message and always post a new one.
+      if (this._lastComponentInteraction) {
+        // Acknowledge the component interaction without editing the message.
+        await this._lastComponentInteraction.deferUpdate();
+        this._lastComponentInteraction = null;
+      }
+      await this.disposeOldMessage(resolved, commandInteraction);
+      const followUpPayload = ephemeral
+        ? { ...discordPayload, flags: MessageFlags.Ephemeral }
+        : discordPayload;
+      const newMessage = await commandInteraction.followUp(followUpPayload);
+      this._activeMessage = newMessage as Message;
+      this._activeMessageEphemeral = ephemeral;
+      this._activeMessageIsFollowUp = true;
       this._lastUpdateSource = 'followUp';
     } else if (this._lastComponentInteraction) {
       // We have a component interaction to update
@@ -650,6 +657,60 @@ export class MenuRenderer {
     const existing =
       typeof payload.flags === 'number' ? payload.flags : 0;
     return { ...payload, flags: existing | MessageFlags.Ephemeral };
+  }
+
+  /**
+   * Dispose the current active message according to the resolved disposal
+   * strategy. Called whenever a new message is about to be posted in its place.
+   *
+   * - stripComponents: remove interactive components, leave content
+   * - delete: delete if non-ephemeral; fall back to ephemeralFallbackDisposal
+   *   if the message is ephemeral (Discord does not allow deleting ephemeral messages)
+   * - replaceWithClosed: replace content with the closedMessage string
+   */
+  private async disposeOldMessage(
+    resolved: Pick<ResolvedBehavior, 'oldMessageDisposal' | 'ephemeralFallbackDisposal' | 'closedMessage'>,
+    commandInteraction: ChatInputCommandInteraction,
+  ): Promise<void> {
+    if (!this._activeMessage) return;
+
+    const disposal = this._activeMessageEphemeral
+      ? resolved.oldMessageDisposal === 'delete'
+        ? resolved.ephemeralFallbackDisposal
+        : resolved.oldMessageDisposal
+      : resolved.oldMessageDisposal;
+
+    try {
+      if (disposal === 'delete') {
+        await this.deleteOldMessage();
+      } else if (disposal === 'replaceWithClosed') {
+        const closePayload = {
+          content: resolved.closedMessage,
+          embeds: [],
+          components: [],
+        };
+        if (this._activeMessageEphemeral) {
+          await this.editEphemeralMessage(commandInteraction, closePayload);
+        } else {
+          await this._activeMessage.edit(closePayload);
+        }
+        this._activeMessage = null;
+      } else {
+        // stripComponents
+        const stripPayload = { components: [] };
+        if (this._activeMessageEphemeral) {
+          await this.editEphemeralMessage(commandInteraction, stripPayload);
+        } else {
+          await this._activeMessage.edit(stripPayload);
+        }
+        this._activeMessage = null;
+      }
+    } catch {
+      // Best-effort — message may have expired
+      this._activeMessage = null;
+    }
+
+    this._lastComponentInteraction = null;
   }
 
   private buildDiscordPayload(
