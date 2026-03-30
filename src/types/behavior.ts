@@ -36,14 +36,20 @@ export interface BehaviorPolicy {
 /**
  * The behavior declared by a MenuBuilder.
  *
- * - `explicit`: set via setEphemeral() etc. Overrides inherited defaults but
- *   yields to session and global overrides.
- * - `override`: set via overrideEphemeral() etc. Overrides explicit values and
- *   inherited defaults, but still yields to session and global overrides.
+ * - `explicit`: set via setEphemeral() or entryEphemeral. Overrides class
+ *   defaults and inherited session/global defaults, but yields to session and
+ *   global overrides, and to class-level overrides.
+ * - `classDefault`: set via _setDefaultBehavior() in a MenuBuilder subclass.
+ *   Applied when nothing more specific declares a value. Lower priority than
+ *   explicit declarations and session/global defaults.
+ * - `classOverride`: set via _setOverrideBehavior() in a MenuBuilder subclass.
+ *   Overrides explicit declarations from the same builder, but still yields to
+ *   session and global overrides.
  */
 export interface MenuBehavior {
   explicit?: BehaviorConfig;
-  override?: BehaviorConfig;
+  classDefault?: BehaviorConfig;
+  classOverride?: BehaviorConfig;
 }
 
 /**
@@ -58,8 +64,8 @@ export interface ResolvedBehavior {
  * Resolve the effective behavior for a menu render by walking the hierarchy
  * from highest to lowest priority:
  *
- *   globalOverride → sessionOverride → builderOverride
- *     → builderExplicit → sessionDefault → globalDefault → hardcoded fallback
+ *   globalOverride → sessionOverride → classOverride
+ *     → explicit → sessionDefault → globalDefault → classDefault → false
  */
 export function resolveBehavior(
   builderBehavior: MenuBehavior | undefined,
@@ -85,10 +91,11 @@ function resolveField(
   return (
     global?.override?.[key] ??
     session?.override?.[key] ??
-    builder?.override?.[key] ??
+    builder?.classOverride?.[key] ??
     builder?.explicit?.[key] ??
     session?.default?.[key] ??
     global?.default?.[key] ??
+    builder?.classDefault?.[key] ??
     false
   );
 }

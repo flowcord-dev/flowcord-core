@@ -36,7 +36,7 @@ import type {
   SetButtonsOptions,
 } from '../types/common';
 import type { MenuDefinition } from '../registry/MenuRegistry';
-import type { MenuBehavior } from '../types/behavior';
+import type { BehaviorConfig, MenuBehavior } from '../types/behavior';
 
 // ---------------------------------------------------------------------------
 // Builder class
@@ -252,23 +252,49 @@ export class MenuBuilder<
   }
 
   /**
-   * Override the ephemeral state for this menu, taking priority over explicit
-   * declarations from the same builder but still yielding to session and
-   * global overrides.
+   * Set class-level behavior defaults for this builder subclass.
    *
-   * Use this in builder subclasses to enforce a default that individual menus
-   * cannot easily bypass without using a higher-level override. Useful for
-   * plugin authors who want to enforce ephemeral behavior across all menus
-   * in their plugin without requiring callers to set it per-menu.
+   * Called from a subclass constructor to establish defaults that apply when
+   * no explicit declaration (setEphemeral, entryEphemeral) or session/global
+   * policy has set a value. Has the lowest priority in the resolution hierarchy
+   * — easily overridden by any more-specific declaration.
    *
-   * @param ephemeral - true to enforce ephemeral, false to enforce non-ephemeral (default: true)
+   * @example
+   * class AdminMenuBuilder extends MenuBuilder {
+   *   constructor(session, name, options) {
+   *     super(session, name, options);
+   *     this._setDefaultBehavior({ ephemeral: true });
+   *   }
+   * }
    */
-  overrideEphemeral(ephemeral = true): this {
+  protected _setDefaultBehavior(config: BehaviorConfig): void {
     this._behavior = {
       ...this._behavior,
-      override: { ...this._behavior.override, ephemeral },
+      classDefault: { ...this._behavior.classDefault, ...config },
     };
-    return this;
+  }
+
+  /**
+   * Set class-level behavior overrides for this builder subclass.
+   *
+   * Called from a subclass constructor to establish overrides that win over
+   * explicit declarations (setEphemeral) on the same builder, but still yield
+   * to session and global overrides. Use when a class of menus must behave a
+   * certain way unless the host bot explicitly forces otherwise.
+   *
+   * @example
+   * class AdminMenuBuilder extends MenuBuilder {
+   *   constructor(session, name, options) {
+   *     super(session, name, options);
+   *     this._setOverrideBehavior({ ephemeral: true });
+   *   }
+   * }
+   */
+  protected _setOverrideBehavior(config: BehaviorConfig): void {
+    this._behavior = {
+      ...this._behavior,
+      classOverride: { ...this._behavior.classOverride, ...config },
+    };
   }
 
   /**
