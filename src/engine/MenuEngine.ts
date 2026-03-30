@@ -160,13 +160,13 @@ export class MenuEngine {
   async handleInteraction(
     interaction: ChatInputCommandInteraction,
     menuName: string,
-    options?: Record<string, unknown>,
+    commandOptions?: Record<string, unknown>,
     interactionOptions?: HandleInteractionOptions
   ): Promise<void> {
     const session = this.createSession(interaction);
 
     try {
-      await session.initialize(menuName, options, interactionOptions);
+      await session.initialize(menuName, commandOptions, interactionOptions);
     } catch (error) {
       this.removeSession(session.id);
       console.error(`[FlowCord] Error in session ${session.id}`, error);

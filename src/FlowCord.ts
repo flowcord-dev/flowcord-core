@@ -55,13 +55,13 @@ export class FlowCord {
   async handleInteraction(
     interaction: ChatInputCommandInteraction,
     menuName: string,
-    options?: Record<string, unknown>,
+    commandOptions?: Record<string, unknown>,
     interactionOptions?: HandleInteractionOptions
   ): Promise<void> {
     return this._engine.handleInteraction(
       interaction,
       menuName,
-      options,
+      commandOptions,
       interactionOptions
     );
   }
