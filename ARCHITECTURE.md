@@ -12,6 +12,7 @@ This document explains how FlowCord works under the hood. It covers the session 
 - [Component ID Management](#component-id-management)
 - [Rendering Pipeline](#rendering-pipeline)
 - [Navigation System](#navigation-system)
+- [Behavior Policy Resolution](#behavior-policy-resolution)
 - [State Architecture](#state-architecture)
 - [Modal Handling](#modal-handling)
 - [Lifecycle Hook Execution](#lifecycle-hook-execution)
@@ -101,6 +102,24 @@ User runs /command
 │ Session ends         │──── Engine removes session from map
 └──────────────────────┘
 ```
+
+### Async vs Sync Factory: deferReply Timing
+
+Discord requires `deferReply()` to be called within 3 seconds of receiving an interaction. The placement of `deferReply()` depends on whether the menu factory is async:
+
+**Sync factory** — The factory runs first (synchronously, so no timeout risk), then `deferReply()` is called with the fully resolved ephemeral flag:
+
+```
+run factory → read definition.behavior → resolveBehavior() → deferReply(ephemeral)
+```
+
+**Async factory** — The factory must be awaited, which would risk hitting the 3-second window. FlowCord defers first, resolving ephemeral from `entryEphemeral` + the session/global policy, then awaits the factory:
+
+```
+resolveBehavior(entryEphemeral, sessionPolicy, globalPolicy) → deferReply(ephemeral) → await factory
+```
+
+FlowCord detects async factories at runtime via `fn.constructor.name === 'AsyncFunction'`. The renderer is seeded with the actual `deferReply` ephemeral value so that subsequent navigation correctly tracks whether the active message is ephemeral.
 
 ### Session States
 
@@ -277,6 +296,48 @@ When popping a menu from the stack, FlowCord creates a new `MenuInstance` from t
 
 - **Default behavior**: state is recreated (`setup()` runs), so the menu reflects current data.
 - **Opt-in restore**: menus configured with `.setPreserveStateOnReturn()` snapshot menu state and pagination before navigation, then restore those snapshots when returning via `goBack()`.
+
+---
+
+## Behavior Policy Resolution
+
+FlowCord resolves per-render behaviors (currently just `ephemeral`) by walking a priority hierarchy from highest to lowest:
+
+```
+globalOverride → sessionOverride → classOverride (_setOverrideBehavior)
+  → explicit (setEphemeral / entryEphemeral)
+    → classDefault (_setDefaultBehavior) → sessionDefault → globalDefault → false
+```
+
+### Where each level lives
+
+| Level | Set via | Scope |
+|---|---|---|
+| `globalOverride` / `globalDefault` | `FlowCordConfig.behavior` | All sessions in this engine |
+| `sessionOverride` / `sessionDefault` | `HandleInteractionOptions.behavior` | All menus in this invocation |
+| `classOverride` | `MenuBuilder._setOverrideBehavior()` *(protected)* | All menus of this builder subclass; beats explicit declarations |
+| `explicit` | `MenuBuilder.setEphemeral()` / `entryEphemeral` | This menu (or entry menu) |
+| `classDefault` | `MenuBuilder._setDefaultBehavior()` *(protected)* | All menus of this builder subclass; beats session/global defaults |
+
+`override` beats same-level `explicit`/`default`. Global `override` beats session `override`. The fallback when nothing is set is `false`.
+
+### Implementation
+
+`resolveBehavior(builderBehavior, sessionPolicy, globalPolicy)` in `src/types/behavior.ts` takes the three policy objects and returns a `ResolvedBehavior` with all fields as concrete booleans. It is called in two places:
+
+- **`MenuSession.initialize()`** — before `deferReply()` to determine the entry ephemeral flag
+- **`MenuSession.renderCurrentMenu()`** — before each render to pass the resolved `ephemeral` value to the renderer
+
+### Ephemeral message editing
+
+Ephemeral messages cannot be edited via `Message.edit()` (channel REST API). The renderer tracks two flags:
+
+- `_activeMessageEphemeral` — whether the current message is ephemeral
+- `_activeMessageIsFollowUp` — whether it was created via `followUp()` (non→ephemeral transition) or `editReply()` (`@original`)
+
+Edits to ephemeral messages are routed through `interaction.editReply()` for `@original` messages, or `client.rest.patch(Routes.webhookMessage(appId, token, messageId))` for followUp messages. This prevents `editReply()` from silently updating the wrong message when the active message is not `@original`.
+
+When ephemerality changes between menus, the renderer sends a `followUp` for the new message and strips components from the outgoing message rather than deleting it (ephemeral messages cannot be deleted via REST).
 
 ---
 

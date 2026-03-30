@@ -65,7 +65,7 @@ export interface ResolvedBehavior {
  * from highest to lowest priority:
  *
  *   globalOverride → sessionOverride → classOverride
- *     → explicit → sessionDefault → globalDefault → classDefault → false
+ *     → explicit → classDefault → sessionDefault → globalDefault → false
  */
 export function resolveBehavior(
   builderBehavior: MenuBehavior | undefined,
@@ -93,9 +93,9 @@ function resolveField(
     session?.override?.[key] ??
     builder?.classOverride?.[key] ??
     builder?.explicit?.[key] ??
+    builder?.classDefault?.[key] ??
     session?.default?.[key] ??
     global?.default?.[key] ??
-    builder?.classDefault?.[key] ??
     false
   );
 }
