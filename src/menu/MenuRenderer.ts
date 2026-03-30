@@ -75,6 +75,13 @@ export class MenuRenderer {
   private _activeMessageIsFollowUp = false;
   private _lastUpdateSource: LastUpdateSource | null = null;
 
+  /**
+   * The actual ephemeral state used for deferReply — may differ from
+   * definition.ephemeral for async factories where the caller provides the
+   * flag. Set once after deferReply so the first render uses the real state.
+   */
+  private _deferEphemeral: boolean | null = null;
+
   /** The last component interaction received — used for .update() */
   private _lastComponentInteraction: MessageComponentInteraction | null = null;
 
@@ -88,6 +95,16 @@ export class MenuRenderer {
   /** Set after message collection so the next render uses followUp. */
   setResetFlag(): void {
     this._isReset = true;
+  }
+
+  /**
+   * Record the actual ephemeral state used for deferReply.
+   * Called by MenuSession immediately after deferReply so the first render
+   * sets _activeMessageEphemeral to the real Discord message state rather
+   * than definition.ephemeral (which may differ for async factories).
+   */
+  seedDeferEphemeral(ephemeral: boolean): void {
+    this._deferEphemeral = ephemeral;
   }
 
   /** Set the latest component interaction for .update() calls. */
@@ -520,11 +537,15 @@ export class MenuRenderer {
       }
       this._lastUpdateSource = 'editReply';
     } else {
-      // First render — editReply on the deferred reply
+      // First render — editReply on the deferred reply.
+      // Use _deferEphemeral (the actual state passed to deferReply) if set,
+      // so _activeMessageEphemeral reflects the real Discord message state
+      // rather than definition.ephemeral (which can diverge for async factories).
       const message = await commandInteraction.editReply(discordPayload);
       this._activeMessage = message as Message;
-      this._activeMessageEphemeral = ephemeral;
+      this._activeMessageEphemeral = this._deferEphemeral ?? ephemeral;
       this._activeMessageIsFollowUp = false;
+      this._deferEphemeral = null;
       this._lastUpdateSource = 'editReply';
     }
 
