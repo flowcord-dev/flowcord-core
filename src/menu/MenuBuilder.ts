@@ -36,6 +36,7 @@ import type {
   SetButtonsOptions,
 } from '../types/common';
 import type { MenuDefinition } from '../registry/MenuRegistry';
+import type { MenuBehavior } from '../types/behavior';
 
 // ---------------------------------------------------------------------------
 // Builder class
@@ -76,7 +77,7 @@ export class MenuBuilder<
   protected _isCancellable = false;
   protected _isReturnable = false;
   protected _preserveStateOnReturn = false;
-  protected _ephemeral = false;
+  protected _behavior: MenuBehavior = {};
   protected _fallbackMenu?: string;
   protected _fallbackMenuOptions?: Record<string, unknown>;
 
@@ -227,19 +228,46 @@ export class MenuBuilder<
   }
 
   /**
-   * Make this menu visible only to the invoking user (ephemeral).
+   * Explicitly set whether this menu is visible only to the invoking user.
    *
-   * For the entry menu (first menu opened by a slash command), this works
-   * automatically when the factory function is synchronous. For async factory
-   * functions, pass `{ ephemeral: true }` to `handleInteraction()` instead —
-   * the framework must defer the interaction before awaiting the factory.
+   * Sits in the middle of the resolution hierarchy — overrides session and
+   * global defaults, but yields to session and global overrides.
+   *
+   * For the entry menu with an async factory, the framework must defer before
+   * running the factory, so pass `entryEphemeral` to `handleInteraction()`
+   * as well to ensure the initial deferReply uses the correct flag.
    *
    * For navigation targets, this always works regardless of factory type.
    * When navigating between menus with different ephemeral states, the
    * framework posts a new message and strips components from the old one.
+   *
+   * @param ephemeral - true to make ephemeral, false to explicitly opt out (default: true)
    */
-  setEphemeral(): this {
-    this._ephemeral = true;
+  setEphemeral(ephemeral = true): this {
+    this._behavior = {
+      ...this._behavior,
+      explicit: { ...this._behavior.explicit, ephemeral },
+    };
+    return this;
+  }
+
+  /**
+   * Override the ephemeral state for this menu, taking priority over explicit
+   * declarations from the same builder but still yielding to session and
+   * global overrides.
+   *
+   * Use this in builder subclasses to enforce a default that individual menus
+   * cannot easily bypass without using a higher-level override. Useful for
+   * plugin authors who want to enforce ephemeral behavior across all menus
+   * in their plugin without requiring callers to set it per-menu.
+   *
+   * @param ephemeral - true to enforce ephemeral, false to enforce non-ephemeral (default: true)
+   */
+  overrideEphemeral(ephemeral = true): this {
+    this._behavior = {
+      ...this._behavior,
+      override: { ...this._behavior.override, ephemeral },
+    };
     return this;
   }
 
@@ -414,7 +442,7 @@ export class MenuBuilder<
         | ((ctx: MenuContext, response: string) => Awaitable<void>)
         | undefined,
       listPagination: this._listPagination as ListPaginationOptions<MenuContext> | undefined,
-      ephemeral: this._ephemeral,
+      behavior: this._behavior,
       isTrackedInHistory: this._isTrackedInHistory,
       isCancellable: this._isCancellable,
       isReturnable: this._isReturnable,
