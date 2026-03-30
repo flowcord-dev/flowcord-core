@@ -489,8 +489,14 @@ export class MenuRenderer {
       this._lastComponentInteraction = null;
       this._lastUpdateSource = 'component';
     } else if (this._activeMessage) {
-      // Existing message — edit it
-      await this._activeMessage.edit(discordPayload);
+      // Existing message — edit it.
+      // Ephemeral messages cannot be edited via Message.edit() (REST);
+      // they must be updated through the original interaction token.
+      if (this._activeMessageEphemeral) {
+        await commandInteraction.editReply(discordPayload);
+      } else {
+        await this._activeMessage.edit(discordPayload);
+      }
       this._lastUpdateSource = 'editReply';
     } else {
       // First render — editReply on the deferred reply
