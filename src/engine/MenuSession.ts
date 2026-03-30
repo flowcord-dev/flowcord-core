@@ -160,17 +160,21 @@ export class MenuSession implements MenuSessionLike {
     if (isAsyncFactory(factory)) {
       // Async factory: defer immediately before any user code runs.
       // Use the ephemeral flag passed by the caller.
+      const actualEphemeral = ephemeral ?? false;
       await this._commandInteraction.deferReply(
-        ephemeral ? { flags: MessageFlags.Ephemeral } : {}
+        actualEphemeral ? { flags: MessageFlags.Ephemeral } : {}
       );
+      this._renderer.seedDeferEphemeral(actualEphemeral);
       await this.navigateTo(menuName, options);
     } else {
       // Sync factory: run it first to read ephemeral from setEphemeral(),
       // then defer with the correct flag before running setup/onEnter.
       const definition = factory(this, options) as MenuDefinition;
+      const actualEphemeral = definition.ephemeral;
       await this._commandInteraction.deferReply(
-        definition.ephemeral ? { flags: MessageFlags.Ephemeral } : {}
+        actualEphemeral ? { flags: MessageFlags.Ephemeral } : {}
       );
+      this._renderer.seedDeferEphemeral(actualEphemeral);
       // Replicate the initial navigateTo steps (no previous menu to leave)
       this._currentOptions = options;
       const instance = new MenuInstance(definition, this.id);
