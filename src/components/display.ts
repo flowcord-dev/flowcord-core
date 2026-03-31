@@ -101,7 +101,7 @@ export interface SectionOptions<TCtx = MenuContextLike> {
   accessory: ButtonConfig<TCtx> | ThumbnailConfig;
 }
 
-/** Create a section with text content and an optional accessory (button or thumbnail). */
+/** Create a section with text content and an accessory (button or thumbnail). */
 export function section<TCtx = MenuContextLike>(
   opts: SectionOptions<TCtx>
 ): SectionConfig<TCtx> {
