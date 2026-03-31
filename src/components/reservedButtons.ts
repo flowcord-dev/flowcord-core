@@ -176,14 +176,16 @@ export function injectReservedButtons(
       result.push(row);
       injected = true;
     } else if (component.type === 'container' && !injected) {
-      // Search inside containers for the placeholder
-      const injectedChildren = injectReservedButtons(component.children, row);
       const hadPlaceholder = containsPlaceholder(component.children);
-      result.push({
-        ...component,
-        children: injectedChildren,
-      });
-      if (hadPlaceholder) injected = true;
+      if (hadPlaceholder) {
+        result.push({
+          ...component,
+          children: injectReservedButtons(component.children, row),
+        });
+        injected = true;
+      } else {
+        result.push(component);
+      }
     } else {
       result.push(component);
     }

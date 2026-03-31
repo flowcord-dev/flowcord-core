@@ -129,11 +129,23 @@ export class MenuRenderer {
   async renderCancelled(
     commandInteraction: ChatInputCommandInteraction
   ): Promise<void> {
-    const payload: Record<string, unknown> = {
-      content: '*Command Cancelled*',
-      embeds: [],
-      components: [],
-    };
+    // Layout-mode messages have the IsComponentsV2 flag permanently set.
+    // Any edit must include the flag and use display components instead of content.
+    const payload: Record<string, unknown> =
+      this._activeMessageMode === 'layout'
+        ? {
+            components: [
+              new TextDisplayBuilder().setContent('*Command Cancelled*'),
+            ],
+            embeds: [],
+            content: '',
+            flags: MessageFlags.IsComponentsV2,
+          }
+        : {
+            content: '*Command Cancelled*',
+            embeds: [],
+            components: [],
+          };
 
     try {
       if (this._lastComponentInteraction && !this._isReset) {
@@ -149,14 +161,25 @@ export class MenuRenderer {
   }
 
   /**
-   * Send the close state — remove components from the message.
+   * Send the close state — remove interactive components from the message.
    */
   async renderClosed(
     commandInteraction: ChatInputCommandInteraction
   ): Promise<void> {
-    const payload: Record<string, unknown> = {
-      components: [],
-    };
+    // Layout-mode messages require the IsComponentsV2 flag on all edits.
+    const payload: Record<string, unknown> =
+      this._activeMessageMode === 'layout'
+        ? {
+            components: [
+              new TextDisplayBuilder().setContent('-# This menu has expired.'),
+            ],
+            embeds: [],
+            content: '',
+            flags: MessageFlags.IsComponentsV2,
+          }
+        : {
+            components: [],
+          };
 
     try {
       if (this._lastComponentInteraction && !this._isReset) {
