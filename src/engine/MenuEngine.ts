@@ -139,6 +139,7 @@ export class MenuEngine {
       await session.initialize(menuName, options);
     } catch (error) {
       this.removeSession(session.id);
+      console.error(`[FlowCord] Error in session ${session.id}`, error);
       if (this._config.onError) {
         await this._config.onError(session, error);
       } else {

@@ -682,18 +682,14 @@ export class MenuRenderer {
       }
     }
 
-    if (config.accessory) {
-      if (config.accessory.type === 'thumbnail') {
-        builder.setThumbnailAccessory(
-          new ThumbnailBuilder().setURL(config.accessory.url)
-        );
-      } else if (config.accessory.type === 'button') {
-        const buttonBuilder = this.buildButtonBuilder(
-          config.accessory,
-          menuInstance
-        );
-        builder.setButtonAccessory(buttonBuilder);
-      }
+    if (config.accessory.type === 'thumbnail') {
+      builder.setThumbnailAccessory(
+        new ThumbnailBuilder().setURL(config.accessory.url)
+      );
+    } else if (config.accessory.type === 'button') {
+      builder.setButtonAccessory(
+        this.buildButtonBuilder(config.accessory, menuInstance)
+      );
     }
 
     return builder;
