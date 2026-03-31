@@ -98,7 +98,7 @@ export function text(content: string): TextDisplayConfig {
 
 export interface SectionOptions<TCtx = MenuContextLike> {
   text: (string | TextDisplayConfig)[];
-  accessory?: ButtonConfig<TCtx> | ThumbnailConfig;
+  accessory: ButtonConfig<TCtx> | ThumbnailConfig;
 }
 
 /** Create a section with text content and an optional accessory (button or thumbnail). */

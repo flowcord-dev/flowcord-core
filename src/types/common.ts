@@ -78,7 +78,7 @@ export interface TextDisplayConfig {
 export interface SectionConfig<TCtx = MenuContextLike> {
   type: 'section';
   text: (string | TextDisplayConfig)[];
-  accessory?: ButtonConfig<TCtx> | ThumbnailConfig;
+  accessory: ButtonConfig<TCtx> | ThumbnailConfig;
 }
 
 export interface ContainerConfig<TCtx = MenuContextLike> {
