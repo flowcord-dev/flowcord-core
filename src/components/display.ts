@@ -24,6 +24,7 @@ import type {
   TextDisplayConfig,
   ThumbnailConfig,
   Action,
+  SelectAction,
 } from '../types';
 import type { ButtonStyle } from 'discord.js';
 
@@ -62,7 +63,7 @@ export function button<TCtx = MenuContextLike>(
 export interface SelectOptions<TCtx = MenuContextLike> {
   builder: SelectConfig['builder'];
   id?: string;
-  onSelect?: Action<TCtx>;
+  onSelect?: SelectAction<TCtx>;
 }
 
 /** Create a select menu config with an associated action. */
