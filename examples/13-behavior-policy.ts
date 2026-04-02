@@ -1,18 +1,18 @@
 /**
- * Example 13 — Behavior Policy: updateMode, oldMessageDisposal, deleteUserMessages
+ * Example 13 — Behavior Policy: updateMode, oldMessageDisposal, deleteUserMessages,
+ *              and interaction-level behavior overrides.
  *
- * Tests all new BehaviorConfig fields added in the behavior-policy-extensions branch.
- *
- * Slash command: /behavior-test
+ * Slash command: /behavior-hub
  *
  * Menu flow:
- *   hub ──► postnew-delete      updateMode:'postNew' + disposal:'delete'
- *       ──► postnew-replace     updateMode:'postNew' + disposal:'replaceWithClosed' + closedMessage
- *       ──► postnew-strip       updateMode:'postNew' + disposal:'stripComponents'  (baseline)
- *       ──► collect-editInPlace setMessageHandler + deleteUserMessages:true (editInPlace default)
- *       ──► collect-postNew     setMessageHandler + deleteUserMessages:true + updateMode:'postNew'
- *       ──► ephemeral-fb        setEphemeral + updateMode:'postNew' + disposal:'delete'
- *                                 + ephemeralFallback:'replaceWithClosed'
+ *   hub ──► postnew-delete        updateMode:'postNew' + disposal:'delete'
+ *       ──► postnew-replace       updateMode:'postNew' + disposal:'replaceWithClosed' + closedMessage
+ *       ──► postnew-strip         updateMode:'postNew' + disposal:'stripComponents'  (baseline)
+ *       ──► collect-editInPlace   setMessageHandler + deleteUserMessages:true (editInPlace default)
+ *       ──► collect-postNew       setMessageHandler + deleteUserMessages:true + updateMode:'postNew'
+ *       ──► ephemeral-fb          setEphemeral + updateMode:'postNew' + disposal:'delete'
+ *                                   + ephemeralFallback:'replaceWithClosed'
+ *       ──► interaction-override  per-button behavior overrides on an otherwise editInPlace menu
  *
  * What to look for:
  *
@@ -39,6 +39,14 @@
  *                        see "🔒 Ephemeral — cannot delete." appear on each old message
  *                        instead of it disappearing.
  *
+ *  interaction-override  The menu defaults to editInPlace, but individual buttons carry
+ *                        a behavior override:
+ *                        • "Normal click" — no override, edits in place (default).
+ *                        • "postNew click" — behavior:{ updateMode:'postNew', oldMessageDisposal:'delete' }
+ *                          only THIS click deletes the old message and reposts; next click reverts.
+ *                        • "Reveal secret" — behavior:{ ephemeral:true, updateMode:'postNew' }
+ *                          shows a one-off ephemeral message; next click is public again.
+ *
  * Concepts shown:
  *   - setUpdateMode()
  *   - setOldMessageDisposal() with all three modes
@@ -47,6 +55,8 @@
  *   - deleteUserMessages option
  *   - editInPlace vs postNew after message collection
  *   - setEphemeral() + ephemeralFallbackDisposal interaction
+ *   - Per-button behavior overrides (interaction-level)
+ *   - Transient ephemeral via per-button behavior
  */
 
 import {
@@ -55,18 +65,18 @@ import {
   SlashCommandBuilder,
 } from 'discord.js';
 // Local dev (flowcord-core repo only):
-// import {
-//   type FlowCord,
-//   MenuBuilder,
-//   goTo,
-//   closeMenu,
-// } from '../src/index.ts';
 import {
   type FlowCord,
   MenuBuilder,
   goTo,
   closeMenu,
-} from '@flowcord/core';
+} from '../src/index.ts';
+// import {
+//   type FlowCord,
+//   MenuBuilder,
+//   goTo,
+//   closeMenu,
+// } from '@flowcord/core';
 
 // ---------------------------------------------------------------------------
 // Slash command definition
@@ -89,6 +99,7 @@ export function register(flowcord: FlowCord): void {
   // -------------------------------------------------------------------------
   flowcord.registerMenu('behavior-hub', (session) =>
     new MenuBuilder(session, 'behavior-hub')
+      .setTrackedInHistory()
       .setEmbeds(() => [
         new EmbedBuilder()
           .setTitle('Behavior Policy Testbed')
@@ -99,7 +110,8 @@ export function register(flowcord: FlowCord): void {
               '**postNew + strip** — each click strips components from the previous message (default)\n' +
               '**Collect (editInPlace)** — type a reply; your message is deleted, bot message updates in place\n' +
               '**Collect (postNew)** — type a reply; your message is deleted, bot message is stripped and reposted\n' +
-              '**Ephemeral + fallback** — ephemeral postNew; delete falls back to replaceWithClosed',
+              '**Ephemeral + fallback** — ephemeral postNew; delete falls back to replaceWithClosed\n' +
+              '**Interaction overrides** — per-button behavior; one button reposts, one reveals an ephemeral message',
           )
           .setColor(0x5865f2),
       ])
@@ -133,6 +145,11 @@ export function register(flowcord: FlowCord): void {
           label: 'Ephemeral + fallback',
           style: ButtonStyle.Secondary,
           action: goTo('behavior-ephemeral-fb'),
+        },
+        {
+          label: 'Interaction overrides',
+          style: ButtonStyle.Secondary,
+          action: goTo('behavior-interaction-override'),
         },
         {
           label: 'Close',
@@ -280,9 +297,7 @@ export function register(flowcord: FlowCord): void {
       session,
       'behavior-collect-edit',
     )
-      .setOldMessageDisposal('stripComponents', {
-        deleteUserMessages: true,
-      })
+      .setUpdateMode('editInPlace')
       .setup((ctx) => ctx.state.set('collected', null))
       .setEmbeds((ctx) => {
         const collected = ctx.state.get('collected');
@@ -298,9 +313,12 @@ export function register(flowcord: FlowCord): void {
             .setColor(0xeb459e),
         ];
       })
-      .setMessageHandler(async (ctx, text) => {
-        ctx.state.set('collected', text);
-      })
+      .setMessageHandler(
+        async (ctx, text) => {
+          ctx.state.set('collected', text);
+        },
+        { behavior: { deleteUserMessages: true } },
+      )
       .setReturnable()
       .build(),
   );
@@ -324,10 +342,6 @@ export function register(flowcord: FlowCord): void {
       session,
       'behavior-collect-postnew',
     )
-      .setUpdateMode('postNew')
-      .setOldMessageDisposal('delete', {
-        deleteUserMessages: true,
-      })
       .setup((ctx) => ctx.state.set('collected', null))
       .setEmbeds((ctx) => {
         const collected = ctx.state.get('collected');
@@ -343,9 +357,12 @@ export function register(flowcord: FlowCord): void {
             .setColor(0xfee75c),
         ];
       })
-      .setMessageHandler(async (ctx, text) => {
-        ctx.state.set('collected', text);
-      })
+      .setMessageHandler(
+        async (ctx, text) => {
+          ctx.state.set('collected', text);
+        },
+        { behavior: { deleteUserMessages: true } },
+      )
       .setReturnable()
       .build(),
   );
@@ -390,6 +407,83 @@ export function register(flowcord: FlowCord): void {
         {
           label: `Click me (${ctx.state.get('count')})`,
           style: ButtonStyle.Primary,
+          action: async (ctx) =>
+            ctx.state.set('count', ctx.state.get('count') + 1),
+        },
+      ])
+      .setReturnable()
+      .build(),
+  );
+
+  // -------------------------------------------------------------------------
+  // Demo 6 — Interaction-level behavior overrides
+  //
+  // The menu has NO explicit updateMode — it defaults to editInPlace.
+  // Each button carries its own behavior override for just that click:
+  //
+  //   Normal click    — no override → edits in place (default).
+  //   postNew click   — behavior:{ updateMode:'postNew', oldMessageDisposal:'delete' }
+  //                     Only THIS click deletes the old message and reposts at the
+  //                     bottom. On the NEXT click the menu reverts to editInPlace.
+  //   Reveal secret   — behavior:{ ephemeral:true, updateMode:'postNew' }
+  //                     Posts one ephemeral message showing a "secret". The NEXT
+  //                     click is public again (ephemeral reverts to menu default).
+  //
+  // Expected:
+  //   1. "Normal" increments the counter and edits the message in place.
+  //   2. "postNew" increments, deletes the old message, reposts at the bottom.
+  //      The NEXT click goes back to editing in place.
+  //   3. "Reveal secret" posts an ephemeral message. After you click any button
+  //      on that ephemeral message, the next render is public again.
+  // -------------------------------------------------------------------------
+  flowcord.registerMenu('behavior-interaction-override', (session) =>
+    new MenuBuilder<{ count: number }>(
+      session,
+      'behavior-interaction-override',
+    )
+      // No setUpdateMode — defaults to editInPlace.
+      .setup((ctx) => ctx.state.set('count', 0))
+      .setEmbeds((ctx) => [
+        new EmbedBuilder()
+          .setTitle('Interaction-Level Behavior Overrides')
+          .setDescription(
+            `Clicks: **${ctx.state.get('count')}**\n\n` +
+              '**Normal** — edits in place (menu default).\n' +
+              '**postNew** — deletes old message and reposts (per-button override, reverts after).\n' +
+              '**Reveal secret** — one-shot ephemeral postNew (reverts to public on next click).',
+          )
+          .setColor(0x5865f2),
+      ])
+      .setButtons((ctx) => [
+        {
+          label: `Normal (${ctx.state.get('count')})`,
+          style: ButtonStyle.Secondary,
+          // No behavior override — uses menu/framework default (editInPlace).
+          action: async (ctx) =>
+            ctx.state.set('count', ctx.state.get('count') + 1),
+        },
+        {
+          label: `postNew (${ctx.state.get('count')})`,
+          style: ButtonStyle.Primary,
+          // Per-button override: only this click deletes + reposts.
+          behavior: {
+            updateMode: 'postNew',
+            oldMessageDisposal: 'delete',
+          },
+          action: async (ctx) =>
+            ctx.state.set('count', ctx.state.get('count') + 1),
+        },
+        {
+          label: '🔍 Reveal secret',
+          style: ButtonStyle.Success,
+          // Per-button override: posts ONE ephemeral message.
+          // On the next interaction (any button on the ephemeral message)
+          // the menu resolves back to the default (public, editInPlace).
+          behavior: {
+            ephemeral: true,
+            updateMode: 'postNew',
+            oldMessageDisposal: 'stripComponents',
+          },
           action: async (ctx) =>
             ctx.state.set('count', ctx.state.get('count') + 1),
         },

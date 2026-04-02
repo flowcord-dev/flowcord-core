@@ -34,7 +34,7 @@ import type { MenuDefinition } from '../registry/MenuRegistry';
 import {
   resolveBehavior,
   type BehaviorPolicy,
-  type ResolvedBehavior,
+  type InteractionBehavior,
 } from '../types/behavior';
 import type { HandleInteractionOptions } from './MenuEngine';
 import type { MenuEngine } from './MenuEngine';
@@ -571,14 +571,6 @@ export class MenuSession implements MenuSessionLike {
       this._didNavigate = false;
       this._didHardRefresh = false;
 
-      // Resolve behavior for this iteration — used by both the modal path and
-      // the normal render path so all interaction collectors share the same config.
-      const behavior = resolveBehavior(
-        this._currentMenu.definition.behavior,
-        this._sessionBehavior,
-        this._engine.globalBehavior,
-      );
-
       // --- Pending modal (action triggered openModal in previous iteration) ---
       // The interaction that triggered the modal already called showModal(),
       // so we skip rendering and go straight to awaiting the modal submit.
@@ -586,10 +578,7 @@ export class MenuSession implements MenuSessionLike {
         this._currentMenu.isModalActive &&
         this._currentMenu.activeModal
       ) {
-        const outcome = await this.awaitModalInteraction(
-          timeout,
-          behavior,
-        );
+        const outcome = await this.awaitModalInteraction(timeout);
         if (this._isCancelled || this._isCompleted) break;
         if (this._didNavigate) continue;
         if (outcome === 'timeout') break;
@@ -597,7 +586,9 @@ export class MenuSession implements MenuSessionLike {
       }
 
       // --- Render cycle ---
-      await this.renderCurrentMenu(behavior);
+      // Behavior is resolved inside renderCurrentMenu, incorporating any
+      // pending interaction-level overrides set by the previous interaction.
+      await this.renderCurrentMenu();
 
       // Check if the session ended during rendering (e.g., onEnter navigated away)
       if (this._isCancelled || this._isCompleted) break;
@@ -607,9 +598,9 @@ export class MenuSession implements MenuSessionLike {
       const responseType = this._currentMenu.getResponseType();
 
       if (responseType === 'message') {
-        await this.awaitMessageReply(timeout, behavior);
+        await this.awaitMessageReply(timeout);
       } else if (responseType === 'mixed') {
-        await this.awaitMixedInteraction(timeout, behavior);
+        await this.awaitMixedInteraction(timeout);
       } else {
         await this.awaitComponentInteraction(timeout);
       }
@@ -624,13 +615,27 @@ export class MenuSession implements MenuSessionLike {
   }
 
   /**
-   * Execute a full render cycle for the current menu using the pre-resolved
-   * behavior from the current loop iteration.
+   * Execute a full render cycle for the current menu.
+   * Resolves behavior here so it can incorporate any pending interaction-level
+   * overrides that were stored by the previous interaction dispatch.
    */
-  private async renderCurrentMenu(
-    behavior: ResolvedBehavior,
-  ): Promise<void> {
+  private async renderCurrentMenu(): Promise<void> {
     if (!this._currentMenu) return;
+
+    // Consume interaction behavior set by the previous interaction.
+    // Both are cleared after consumption so they don't bleed into future renders.
+    const interactionBehavior =
+      this._renderer.consumeInteractionBehavior();
+    const interactionTypeDefaults =
+      this._renderer.consumeInteractionTypeDefaults();
+
+    const behavior = resolveBehavior(
+      this._currentMenu.definition.behavior,
+      this._sessionBehavior,
+      this._engine.globalBehavior,
+      interactionBehavior,
+      interactionTypeDefaults,
+    );
 
     const ctx = this.buildContext(this._currentMenu);
 
@@ -697,10 +702,7 @@ export class MenuSession implements MenuSessionLike {
   /**
    * Await a text message reply.
    */
-  private async awaitMessageReply(
-    timeout: number,
-    behavior: ResolvedBehavior,
-  ): Promise<void> {
+  private async awaitMessageReply(timeout: number): Promise<void> {
     const channel = this._commandInteraction.channel;
     if (!channel || !('awaitMessages' in channel)) return;
 
@@ -716,8 +718,20 @@ export class MenuSession implements MenuSessionLike {
       const message = collected.first();
       if (!message || !this._currentMenu) return;
 
+      // Resolve effective behavior for message collection, incorporating the
+      // message handler's explicit behavior and the type default (postNew).
+      const messageHandlerBehavior =
+        this._currentMenu.definition.messageHandlerBehavior;
+      const effectiveBehavior = resolveBehavior(
+        this._currentMenu.definition.behavior,
+        this._sessionBehavior,
+        this._engine.globalBehavior,
+        messageHandlerBehavior,
+        { updateMode: 'postNew' } satisfies InteractionBehavior,
+      );
+
       // Delete the user's message if configured to do so (best-effort)
-      if (behavior.deleteUserMessages) {
+      if (effectiveBehavior.deleteUserMessages) {
         try {
           await message.delete();
         } catch {
@@ -725,7 +739,14 @@ export class MenuSession implements MenuSessionLike {
         }
       }
 
-      this._renderer.setMessageCollected(behavior);
+      // Store interaction behavior for the next render cycle.
+      this._renderer.setNextInteractionBehavior(
+        messageHandlerBehavior,
+      );
+      this._renderer.setNextInteractionTypeDefaults({
+        updateMode: 'postNew',
+      });
+      this._renderer.setMessageCollected();
 
       const ctx = this.buildContext(this._currentMenu);
       if (this._currentMenu.definition.handleMessage) {
@@ -746,7 +767,6 @@ export class MenuSession implements MenuSessionLike {
    */
   private async awaitMixedInteraction(
     timeout: number,
-    behavior: ResolvedBehavior,
   ): Promise<void> {
     const channel = this._commandInteraction.channel;
     const activeMessage = this._renderer[
@@ -820,7 +840,18 @@ export class MenuSession implements MenuSessionLike {
       result.message !== undefined &&
       this._currentMenu
     ) {
-      if (behavior.deleteUserMessages) {
+      // Resolve effective behavior for message collection (same as awaitMessageReply).
+      const messageHandlerBehavior =
+        this._currentMenu.definition.messageHandlerBehavior;
+      const effectiveBehavior = resolveBehavior(
+        this._currentMenu.definition.behavior,
+        this._sessionBehavior,
+        this._engine.globalBehavior,
+        messageHandlerBehavior,
+        { updateMode: 'postNew' } satisfies InteractionBehavior,
+      );
+
+      if (effectiveBehavior.deleteUserMessages) {
         try {
           await result.message.delete();
         } catch {
@@ -828,7 +859,13 @@ export class MenuSession implements MenuSessionLike {
         }
       }
 
-      this._renderer.setMessageCollected(behavior);
+      this._renderer.setNextInteractionBehavior(
+        messageHandlerBehavior,
+      );
+      this._renderer.setNextInteractionTypeDefaults({
+        updateMode: 'postNew',
+      });
+      this._renderer.setMessageCollected();
 
       const ctx = this.buildContext(this._currentMenu);
       if (this._currentMenu.definition.handleMessage) {
@@ -846,7 +883,6 @@ export class MenuSession implements MenuSessionLike {
    */
   private async awaitModalInteraction(
     timeout: number,
-    behavior: ResolvedBehavior,
   ): Promise<'modal' | 'component' | 'message' | 'timeout'> {
     if (!this._currentMenu) return 'timeout';
 
@@ -974,7 +1010,18 @@ export class MenuSession implements MenuSessionLike {
       result.message !== undefined &&
       this._currentMenu
     ) {
-      if (behavior.deleteUserMessages) {
+      // Resolve effective behavior for message collection.
+      const messageHandlerBehavior =
+        this._currentMenu.definition.messageHandlerBehavior;
+      const effectiveBehavior = resolveBehavior(
+        this._currentMenu.definition.behavior,
+        this._sessionBehavior,
+        this._engine.globalBehavior,
+        messageHandlerBehavior,
+        { updateMode: 'postNew' } satisfies InteractionBehavior,
+      );
+
+      if (effectiveBehavior.deleteUserMessages) {
         try {
           await result.message.delete();
         } catch {
@@ -982,7 +1029,13 @@ export class MenuSession implements MenuSessionLike {
         }
       }
 
-      this._renderer.setMessageCollected(behavior);
+      this._renderer.setNextInteractionBehavior(
+        messageHandlerBehavior,
+      );
+      this._renderer.setNextInteractionTypeDefaults({
+        updateMode: 'postNew',
+      });
+      this._renderer.setMessageCollected();
       const ctx = this.buildContext(this._currentMenu);
       if (this._currentMenu.definition.handleMessage) {
         await this._currentMenu.definition.handleMessage(
@@ -1063,6 +1116,15 @@ export class MenuSession implements MenuSessionLike {
         this._currentMenu.activeSelect?.onSelect;
       if (!onSelect) return;
 
+      // Store the select's interaction behavior for the next render cycle.
+      const selectConfig =
+        this._currentMenu.getSelectConfig(componentId) ??
+        this._currentMenu.activeSelect ??
+        undefined;
+      this._renderer.setNextInteractionBehavior(
+        selectConfig?.behavior,
+      );
+
       const ctx = this.buildContext(this._currentMenu);
 
       await this._lifecycleManager.emit(
@@ -1086,6 +1148,11 @@ export class MenuSession implements MenuSessionLike {
     // --- Custom action dispatch (buttons) ---
     const action = this._currentMenu.resolveAction(componentId);
     if (!action) return;
+
+    // Store the button's interaction behavior for the next render cycle.
+    const buttonConfig =
+      this._currentMenu.getButtonConfig(componentId);
+    this._renderer.setNextInteractionBehavior(buttonConfig?.behavior);
 
     const ctx = this.buildContext(this._currentMenu);
 
@@ -1168,7 +1235,12 @@ export class MenuSession implements MenuSessionLike {
     await interaction.deferUpdate();
 
     const modalConfig = this._currentMenu.activeModal;
-    if (!modalConfig?.onSubmit) return;
+    if (!modalConfig) return;
+
+    // Store the modal's interaction behavior for the next render cycle.
+    this._renderer.setNextInteractionBehavior(modalConfig.behavior);
+
+    if (!modalConfig.onSubmit) return;
 
     const ctx = this.buildContext(this._currentMenu);
     await modalConfig.onSubmit(ctx, interaction.fields);

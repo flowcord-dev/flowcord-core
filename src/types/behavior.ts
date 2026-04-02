@@ -105,6 +105,27 @@ export interface MenuBehavior {
 }
 
 /**
+ * Per-interaction behavior overrides. Applied for the single render cycle
+ * triggered by a specific button, select, message handler, or modal submit.
+ * On the next interaction the behavior resolves from menu/session/global config
+ * as normal unless that interaction also declares an override.
+ *
+ * All fields from BehaviorConfig are permitted, including `ephemeral`.
+ * Setting `ephemeral` here causes that one render cycle to post as ephemeral
+ * (or revert to public), useful for transiently revealing private information
+ * on an otherwise public menu. It does NOT persistently change the menu's
+ * ephemeral state — the initial deferReply ephemeral is still controlled by
+ * setEphemeral() / entryEphemeral only.
+ *
+ * Resolution hierarchy with interaction behaviors included:
+ *   globalOverride → sessionOverride → classOverride
+ *     → interactionExplicit
+ *     → menuExplicit
+ *     → interactionTypeDefault → classDefault → sessionDefault → globalDefault → framework default
+ */
+export type InteractionBehavior = BehaviorConfig;
+
+/**
  * Resolved behavior for a single render cycle.
  * All fields are concrete values — no undefined after resolution.
  */
@@ -125,12 +146,20 @@ export interface ResolvedBehavior {
  * from highest to lowest priority:
  *
  *   globalOverride → sessionOverride → classOverride
- *     → explicit → classDefault → sessionDefault → globalDefault → framework default
+ *     → interactionExplicit → menuExplicit
+ *     → interactionTypeDefault → classDefault → sessionDefault → globalDefault → framework default
+ *
+ * @param interactionBehavior - Per-interaction override from the button/select/handler/modal config.
+ *   Sits above menuExplicit so a specific interaction can override the menu's own declaration.
+ * @param interactionTypeDefaults - Defaults for this category of interaction (e.g. message handlers
+ *   default to postNew). Sits below menuExplicit so an explicit setUpdateMode() still wins.
  */
 export function resolveBehavior(
   builderBehavior: MenuBehavior | undefined,
   sessionPolicy: BehaviorPolicy | undefined,
   globalPolicy: BehaviorPolicy | undefined,
+  interactionBehavior?: InteractionBehavior,
+  interactionTypeDefaults?: InteractionBehavior,
 ): ResolvedBehavior {
   return {
     ephemeral: resolveField(
@@ -139,6 +168,8 @@ export function resolveBehavior(
       sessionPolicy,
       globalPolicy,
       false,
+      interactionBehavior,
+      interactionTypeDefaults,
     ),
     updateMode: resolveField(
       'updateMode',
@@ -146,6 +177,8 @@ export function resolveBehavior(
       sessionPolicy,
       globalPolicy,
       'editInPlace',
+      interactionBehavior,
+      interactionTypeDefaults,
     ),
     oldMessageDisposal: resolveField(
       'oldMessageDisposal',
@@ -153,6 +186,8 @@ export function resolveBehavior(
       sessionPolicy,
       globalPolicy,
       'stripComponents',
+      interactionBehavior,
+      interactionTypeDefaults,
     ),
     ephemeralFallbackDisposal: resolveField(
       'ephemeralFallbackDisposal',
@@ -160,6 +195,8 @@ export function resolveBehavior(
       sessionPolicy,
       globalPolicy,
       'stripComponents',
+      interactionBehavior,
+      interactionTypeDefaults,
     ),
     closedMessage: resolveField(
       'closedMessage',
@@ -167,6 +204,8 @@ export function resolveBehavior(
       sessionPolicy,
       globalPolicy,
       '*Menu closed*',
+      interactionBehavior,
+      interactionTypeDefaults,
     ),
     deleteUserMessages: resolveField(
       'deleteUserMessages',
@@ -174,6 +213,8 @@ export function resolveBehavior(
       sessionPolicy,
       globalPolicy,
       false,
+      interactionBehavior,
+      interactionTypeDefaults,
     ),
   };
 }
@@ -184,12 +225,16 @@ function resolveField<T>(
   session: BehaviorPolicy | undefined,
   global: BehaviorPolicy | undefined,
   fallback: T,
+  interactionBehavior?: InteractionBehavior,
+  interactionTypeDefaults?: InteractionBehavior,
 ): T {
   return (
     (global?.override?.[key] as T | undefined) ??
     (session?.override?.[key] as T | undefined) ??
     (builder?.classOverride?.[key] as T | undefined) ??
+    (interactionBehavior?.[key] as T | undefined) ??
     (builder?.explicit?.[key] as T | undefined) ??
+    (interactionTypeDefaults?.[key] as T | undefined) ??
     (builder?.classDefault?.[key] as T | undefined) ??
     (session?.default?.[key] as T | undefined) ??
     (global?.default?.[key] as T | undefined) ??
