@@ -576,7 +576,7 @@ export class MenuSession implements MenuSessionLike {
       const behavior = resolveBehavior(
         this._currentMenu.definition.behavior,
         this._sessionBehavior,
-        this._engine.globalBehavior
+        this._engine.globalBehavior,
       );
 
       // --- Pending modal (action triggered openModal in previous iteration) ---
@@ -586,7 +586,10 @@ export class MenuSession implements MenuSessionLike {
         this._currentMenu.isModalActive &&
         this._currentMenu.activeModal
       ) {
-        const outcome = await this.awaitModalInteraction(timeout, behavior);
+        const outcome = await this.awaitModalInteraction(
+          timeout,
+          behavior,
+        );
         if (this._isCancelled || this._isCompleted) break;
         if (this._didNavigate) continue;
         if (outcome === 'timeout') break;
@@ -624,7 +627,9 @@ export class MenuSession implements MenuSessionLike {
    * Execute a full render cycle for the current menu using the pre-resolved
    * behavior from the current loop iteration.
    */
-  private async renderCurrentMenu(behavior: ResolvedBehavior): Promise<void> {
+  private async renderCurrentMenu(
+    behavior: ResolvedBehavior,
+  ): Promise<void> {
     if (!this._currentMenu) return;
 
     const ctx = this.buildContext(this._currentMenu);
@@ -692,7 +697,10 @@ export class MenuSession implements MenuSessionLike {
   /**
    * Await a text message reply.
    */
-  private async awaitMessageReply(timeout: number, behavior: ResolvedBehavior): Promise<void> {
+  private async awaitMessageReply(
+    timeout: number,
+    behavior: ResolvedBehavior,
+  ): Promise<void> {
     const channel = this._commandInteraction.channel;
     if (!channel || !('awaitMessages' in channel)) return;
 
