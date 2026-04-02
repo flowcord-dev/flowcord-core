@@ -717,7 +717,11 @@ export class MenuSession implements MenuSessionLike {
         }
       }
 
-      this._renderer.setMessageCollected(resolved.oldMessageDisposal, resolved.closedMessage);
+      this._renderer.setMessageCollected(
+        resolved.oldMessageDisposal,
+        resolved.closedMessage,
+        resolved.ephemeralFallbackDisposal,
+      );
 
       const ctx = this.buildContext(this._currentMenu);
       if (this._currentMenu.definition.handleMessage) {
@@ -751,7 +755,7 @@ export class MenuSession implements MenuSessionLike {
 
     const result = await new Promise<{
       type: 'component' | 'message';
-      value?: string;
+      message?: Message;
       interaction?: MessageComponentInteraction;
     }>((resolve, reject) => {
       let settled = false;
@@ -792,7 +796,7 @@ export class MenuSession implements MenuSessionLike {
           if (settled) return;
           settled = true;
           const msg = collected.first();
-          resolve({ type: 'message', value: msg?.content });
+          resolve({ type: 'message', message: msg });
         })
         .catch(() => {
           if (!settled) onFail();
@@ -809,16 +813,28 @@ export class MenuSession implements MenuSessionLike {
       await this.handleComponentInteraction(result.interaction);
     } else if (
       result.type === 'message' &&
-      result.value !== undefined &&
+      result.message !== undefined &&
       this._currentMenu
     ) {
-      this._renderer.setMessageCollected(resolved.oldMessageDisposal, resolved.closedMessage);
+      if (resolved.deleteUserMessages) {
+        try {
+          await result.message.delete();
+        } catch {
+          // May not have permissions
+        }
+      }
+
+      this._renderer.setMessageCollected(
+        resolved.oldMessageDisposal,
+        resolved.closedMessage,
+        resolved.ephemeralFallbackDisposal,
+      );
 
       const ctx = this.buildContext(this._currentMenu);
       if (this._currentMenu.definition.handleMessage) {
         await this._currentMenu.definition.handleMessage(
           ctx,
-          result.value,
+          result.message.content,
         );
       }
     }
@@ -845,7 +861,7 @@ export class MenuSession implements MenuSessionLike {
       type: 'modal' | 'component' | 'message';
       modalInteraction?: ModalSubmitInteraction;
       componentInteraction?: MessageComponentInteraction;
-      messageContent?: string;
+      message?: Message;
     }>((resolve, reject) => {
       let settled = false;
       let failCount = 0;
@@ -921,7 +937,7 @@ export class MenuSession implements MenuSessionLike {
             const msg = collected.first();
             resolve({
               type: 'message',
-              messageContent: msg?.content,
+              message: msg,
             });
           })
           .catch(() => {
@@ -955,15 +971,27 @@ export class MenuSession implements MenuSessionLike {
       return 'component';
     } else if (
       result.type === 'message' &&
-      result.messageContent !== undefined &&
+      result.message !== undefined &&
       this._currentMenu
     ) {
-      this._renderer.setMessageCollected(resolved.oldMessageDisposal, resolved.closedMessage);
+      if (resolved.deleteUserMessages) {
+        try {
+          await result.message.delete();
+        } catch {
+          // May not have permissions
+        }
+      }
+
+      this._renderer.setMessageCollected(
+        resolved.oldMessageDisposal,
+        resolved.closedMessage,
+        resolved.ephemeralFallbackDisposal,
+      );
       const ctx = this.buildContext(this._currentMenu);
       if (this._currentMenu.definition.handleMessage) {
         await this._currentMenu.definition.handleMessage(
           ctx,
-          result.messageContent,
+          result.message.content,
         );
       }
       return 'message';

@@ -95,6 +95,7 @@ export class MenuRenderer {
    */
   private _pendingDisposal: 'stripComponents' | 'delete' | 'replaceWithClosed' = 'stripComponents';
   private _pendingClosedMessage = '*Menu closed*';
+  private _pendingEphemeralFallbackDisposal: 'stripComponents' | 'delete' = 'stripComponents';
 
   get activeMessageMode(): RenderMode | null {
     return this._activeMessageMode;
@@ -106,11 +107,13 @@ export class MenuRenderer {
    */
   setMessageCollected(
     disposal: 'stripComponents' | 'delete' | 'replaceWithClosed',
-    closedMessage: string
+    closedMessage: string,
+    ephemeralFallbackDisposal: 'stripComponents' | 'delete',
   ): void {
     this._isReset = true;
     this._pendingDisposal = disposal;
     this._pendingClosedMessage = closedMessage;
+    this._pendingEphemeralFallbackDisposal = ephemeralFallbackDisposal;
   }
 
   /**
@@ -583,9 +586,14 @@ export class MenuRenderer {
       // After message collection — dispose old message and post new as followUp.
       const pendingDisposal = this._pendingDisposal;
       const pendingClosedMessage = this._pendingClosedMessage;
+      const pendingEphemeralFallback = this._pendingEphemeralFallbackDisposal;
       this._isReset = false;
       await this.disposeOldMessage(
-        { ...resolved, oldMessageDisposal: pendingDisposal, closedMessage: pendingClosedMessage },
+        {
+          oldMessageDisposal: pendingDisposal,
+          closedMessage: pendingClosedMessage,
+          ephemeralFallbackDisposal: pendingEphemeralFallback,
+        },
         commandInteraction,
       );
       const followUpPayload = ephemeral ? this.makeEphemeral(discordPayload) : discordPayload;
@@ -602,9 +610,7 @@ export class MenuRenderer {
         this._lastComponentInteraction = null;
       }
       await this.disposeOldMessage(resolved, commandInteraction);
-      const followUpPayload = ephemeral
-        ? { ...discordPayload, flags: MessageFlags.Ephemeral }
-        : discordPayload;
+      const followUpPayload = ephemeral ? this.makeEphemeral(discordPayload) : discordPayload;
       const newMessage = await commandInteraction.followUp(followUpPayload);
       this._activeMessage = newMessage as Message;
       this._activeMessageEphemeral = ephemeral;
