@@ -32,10 +32,7 @@ import {
 } from 'discord.js';
 import type { MenuInstance } from './MenuInstance';
 import type { MenuContext } from '../context/MenuContext';
-import type {
-  InteractionBehavior,
-  ResolvedBehavior,
-} from '../types/behavior';
+import type { ResolvedBehavior } from '../types/behavior';
 import type {
   ActionRowConfig,
   ButtonConfig,
@@ -93,23 +90,19 @@ export class MenuRenderer {
   private _isReset = false;
 
   /**
-   * Pending per-interaction behavior override. Set by the session after a
-   * button/select/modal/message interaction, consumed by the next render cycle
-   * via consumeInteractionBehavior(). After consumption it is cleared so
-   * subsequent renders see no interaction override.
+   * Disposal config stored by setMessageCollected(), consumed on the next
+   * sendPayload call when _isReset is true.
    */
-  private _pendingInteractionBehavior:
-    | InteractionBehavior
-    | undefined = undefined;
-
-  /**
-   * Pending interaction-type defaults. Set by the session to inject
-   * type-level defaults (e.g. message collection → postNew) below
-   * menuExplicit in the hierarchy. Consumed alongside _pendingInteractionBehavior.
-   */
-  private _pendingInteractionTypeDefaults:
-    | InteractionBehavior
-    | undefined = undefined;
+  private _pendingDisposalConfig: Pick<
+    ResolvedBehavior,
+    | 'oldMessageDisposal'
+    | 'closedMessage'
+    | 'ephemeralFallbackDisposal'
+  > = {
+    oldMessageDisposal: 'stripComponents',
+    closedMessage: '*Menu closed*',
+    ephemeralFallbackDisposal: 'stripComponents',
+  };
 
   get activeMessageMode(): RenderMode | null {
     return this._activeMessageMode;
@@ -117,54 +110,18 @@ export class MenuRenderer {
 
   /**
    * Called after message collection so the next render disposes the old
-   * message appropriately. The disposal strategy is determined by the
-   * resolved behavior at render time (which includes any interaction-level
-   * behavior set via setNextInteractionBehavior).
+   * message and posts a new one via followUp.
    */
-  setMessageCollected(): void {
+  setMessageCollected(
+    config: Pick<
+      ResolvedBehavior,
+      | 'oldMessageDisposal'
+      | 'closedMessage'
+      | 'ephemeralFallbackDisposal'
+    >,
+  ): void {
     this._isReset = true;
-  }
-
-  /**
-   * Store the per-interaction behavior override from the triggering button,
-   * select, message handler, or modal. Consumed once by the next render cycle.
-   */
-  setNextInteractionBehavior(
-    behavior: InteractionBehavior | undefined,
-  ): void {
-    this._pendingInteractionBehavior = behavior;
-  }
-
-  /**
-   * Store the interaction-type defaults for the next render cycle.
-   * These sit below menuExplicit in the hierarchy (e.g. message collection
-   * injects `{ updateMode: 'postNew' }` as a type default so it only applies
-   * when no explicit menu declaration overrides it).
-   * Consumed once by the next render cycle.
-   */
-  setNextInteractionTypeDefaults(
-    defaults: InteractionBehavior | undefined,
-  ): void {
-    this._pendingInteractionTypeDefaults = defaults;
-  }
-
-  /**
-   * Consume and return the pending interaction behavior, clearing it so
-   * subsequent renders see no override unless set again.
-   */
-  consumeInteractionBehavior(): InteractionBehavior | undefined {
-    const b = this._pendingInteractionBehavior;
-    this._pendingInteractionBehavior = undefined;
-    return b;
-  }
-
-  /**
-   * Consume and return the pending interaction-type defaults, clearing them.
-   */
-  consumeInteractionTypeDefaults(): InteractionBehavior | undefined {
-    const d = this._pendingInteractionTypeDefaults;
-    this._pendingInteractionTypeDefaults = undefined;
-    return d;
+    this._pendingDisposalConfig = config;
   }
 
   /**
@@ -642,9 +599,10 @@ export class MenuRenderer {
       this._isReset = false;
       if (behavior.updateMode === 'postNew') {
         // postNew: dispose the old message and post the updated menu as a followUp.
-        // The resolved behavior already includes any message-handler interaction
-        // behavior (disposal mode, closedMessage, etc.) so use it directly.
-        await this.disposeOldMessage(behavior, commandInteraction);
+        await this.disposeOldMessage(
+          this._pendingDisposalConfig,
+          commandInteraction,
+        );
         const followUpPayload = ephemeral
           ? this.makeEphemeral(discordPayload)
           : discordPayload;
@@ -764,30 +722,15 @@ export class MenuRenderer {
         : behavior.oldMessageDisposal
       : behavior.oldMessageDisposal;
 
-    // Layout-mode messages have IsComponentsV2 permanently set — edits must
-    // use display-component payloads rather than embed-style ones.
-    const isLayout = this._activeMessageMode === 'layout';
-
     try {
       if (disposal === 'delete') {
         await this.deleteOldMessage();
       } else if (disposal === 'replaceWithClosed') {
-        const closePayload: Record<string, unknown> = isLayout
-          ? {
-              components: [
-                new TextDisplayBuilder().setContent(
-                  behavior.closedMessage,
-                ),
-              ],
-              embeds: [],
-              content: '',
-              flags: MessageFlags.IsComponentsV2,
-            }
-          : {
-              content: behavior.closedMessage,
-              embeds: [],
-              components: [],
-            };
+        const closePayload = {
+          content: behavior.closedMessage,
+          embeds: [],
+          components: [],
+        };
         if (this._activeMessageEphemeral) {
           await this.editEphemeralMessage(
             commandInteraction,
@@ -799,14 +742,7 @@ export class MenuRenderer {
         this._activeMessage = null;
       } else {
         // stripComponents
-        const stripPayload: Record<string, unknown> = isLayout
-          ? {
-              components: [],
-              embeds: [],
-              content: '',
-              flags: MessageFlags.IsComponentsV2,
-            }
-          : { components: [] };
+        const stripPayload = { components: [] };
         if (this._activeMessageEphemeral) {
           await this.editEphemeralMessage(
             commandInteraction,

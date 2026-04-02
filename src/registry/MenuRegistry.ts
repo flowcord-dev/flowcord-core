@@ -13,10 +13,7 @@ import type {
   SelectConfig,
   SetButtonsOptions,
 } from '../types/common';
-import type {
-  InteractionBehavior,
-  MenuBehavior,
-} from '../types/behavior';
+import type { MenuBehavior } from '../types/behavior';
 import type { EmbedBuilder } from 'discord.js';
 import type { MenuSessionLike } from '../context/MenuContext';
 
@@ -38,7 +35,6 @@ export interface MenuDefinition<TCtx = MenuContext> {
   ) => Awaitable<ModalConfig<TCtx> | ModalConfig<TCtx>[]>;
   setLayout?: (ctx: TCtx) => Awaitable<ComponentConfig<TCtx>[]>;
   handleMessage?: (ctx: TCtx, response: string) => Awaitable<void>;
-  messageHandlerBehavior?: InteractionBehavior;
   listPagination?: ListPaginationOptions<TCtx>;
   isTrackedInHistory: boolean;
   isCancellable: boolean;

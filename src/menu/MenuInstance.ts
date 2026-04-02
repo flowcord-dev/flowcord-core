@@ -34,12 +34,6 @@ export class MenuInstance<
   /** Component IDs that trigger a modal, mapped to their target modal ID */
   private readonly _modalButtonMap = new Map<string, string>();
 
-  /** Map of component ID → ButtonConfig (for interaction behavior lookup) */
-  private readonly _buttonConfigMap = new Map<string, ButtonConfig>();
-
-  /** Map of component ID → SelectConfig (for interaction behavior lookup) */
-  private readonly _selectConfigMap = new Map<string, SelectConfig>();
-
   /** Current pagination state */
   private _paginationState: PaginationState | null = null;
 
@@ -145,23 +139,11 @@ export class MenuInstance<
     this._selectActionMap.clear();
     this._activeModal = null;
     this._isModalActive = false;
-    this._buttonConfigMap.clear();
-    this._selectConfigMap.clear();
   }
 
   /** Look up the action for a given component ID. */
   resolveAction(componentId: string): Action | undefined {
     return this._actionMap.get(componentId);
-  }
-
-  /** Look up the ButtonConfig for a given component ID (for interaction behavior). */
-  getButtonConfig(componentId: string): ButtonConfig | undefined {
-    return this._buttonConfigMap.get(componentId);
-  }
-
-  /** Look up the SelectConfig for a given component ID (for interaction behavior). */
-  getSelectConfig(componentId: string): SelectConfig | undefined {
-    return this._selectConfigMap.get(componentId);
   }
 
   /** Register actions from a list of button configs. Mutates btn.id for stable serialization. */
@@ -178,7 +160,6 @@ export class MenuInstance<
       }
 
       this.validateButton(btn);
-      this._buttonConfigMap.set(id, btn);
 
       if (btn.opensModal) {
         const modalId =
@@ -203,7 +184,6 @@ export class MenuInstance<
     if (selectConfig.onSelect) {
       this._selectActionMap.set(id, selectConfig.onSelect);
     }
-    this._selectConfigMap.set(id, selectConfig);
     this._activeSelect = selectConfig;
   }
 
@@ -272,7 +252,6 @@ export class MenuInstance<
         }
 
         this.validateButton(btn);
-        this._buttonConfigMap.set(id, btn);
 
         if (btn.opensModal) {
           const modalId =
@@ -322,7 +301,6 @@ export class MenuInstance<
           }
 
           this.validateButton(acc);
-          this._buttonConfigMap.set(id, acc);
 
           if (acc.opensModal) {
             const modalId =
