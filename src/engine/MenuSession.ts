@@ -187,15 +187,15 @@ export class MenuSession implements MenuSessionLike {
               },
             }
           : undefined;
-      const resolved = resolveBehavior(
+      const behavior = resolveBehavior(
         entryBehavior,
         this._sessionBehavior,
         this._engine.globalBehavior,
       );
       await this._commandInteraction.deferReply(
-        resolved.ephemeral ? { flags: MessageFlags.Ephemeral } : {},
+        behavior.ephemeral ? { flags: MessageFlags.Ephemeral } : {},
       );
-      this._renderer.seedDeferEphemeral(resolved.ephemeral);
+      this._renderer.seedDeferEphemeral(behavior.ephemeral);
       await this.navigateTo(menuName, options);
     } else {
       // Sync factory: run it first so setEphemeral() on the builder is read,
@@ -211,15 +211,15 @@ export class MenuSession implements MenuSessionLike {
             `Use an async function: async (session, options) => new MenuBuilder(...).build()`,
         );
       }
-      const resolved = resolveBehavior(
+      const behavior = resolveBehavior(
         definition.behavior,
         this._sessionBehavior,
         this._engine.globalBehavior,
       );
       await this._commandInteraction.deferReply(
-        resolved.ephemeral ? { flags: MessageFlags.Ephemeral } : {},
+        behavior.ephemeral ? { flags: MessageFlags.Ephemeral } : {},
       );
-      this._renderer.seedDeferEphemeral(resolved.ephemeral);
+      this._renderer.seedDeferEphemeral(behavior.ephemeral);
       // Replicate the initial navigateTo steps (no previous menu to leave)
       this._currentOptions = options;
       const instance = new MenuInstance(definition, this.id);
@@ -573,7 +573,7 @@ export class MenuSession implements MenuSessionLike {
 
       // Resolve behavior for this iteration — used by both the modal path and
       // the normal render path so all interaction collectors share the same config.
-      const resolved = resolveBehavior(
+      const behavior = resolveBehavior(
         this._currentMenu.definition.behavior,
         this._sessionBehavior,
         this._engine.globalBehavior
@@ -586,7 +586,7 @@ export class MenuSession implements MenuSessionLike {
         this._currentMenu.isModalActive &&
         this._currentMenu.activeModal
       ) {
-        const outcome = await this.awaitModalInteraction(timeout, resolved);
+        const outcome = await this.awaitModalInteraction(timeout, behavior);
         if (this._isCancelled || this._isCompleted) break;
         if (this._didNavigate) continue;
         if (outcome === 'timeout') break;
@@ -594,7 +594,7 @@ export class MenuSession implements MenuSessionLike {
       }
 
       // --- Render cycle ---
-      await this.renderCurrentMenu(resolved);
+      await this.renderCurrentMenu(behavior);
 
       // Check if the session ended during rendering (e.g., onEnter navigated away)
       if (this._isCancelled || this._isCompleted) break;
@@ -604,9 +604,9 @@ export class MenuSession implements MenuSessionLike {
       const responseType = this._currentMenu.getResponseType();
 
       if (responseType === 'message') {
-        await this.awaitMessageReply(timeout, resolved);
+        await this.awaitMessageReply(timeout, behavior);
       } else if (responseType === 'mixed') {
-        await this.awaitMixedInteraction(timeout, resolved);
+        await this.awaitMixedInteraction(timeout, behavior);
       } else {
         await this.awaitComponentInteraction(timeout);
       }
@@ -624,7 +624,7 @@ export class MenuSession implements MenuSessionLike {
    * Execute a full render cycle for the current menu using the pre-resolved
    * behavior from the current loop iteration.
    */
-  private async renderCurrentMenu(resolved: ResolvedBehavior): Promise<void> {
+  private async renderCurrentMenu(behavior: ResolvedBehavior): Promise<void> {
     if (!this._currentMenu) return;
 
     const ctx = this.buildContext(this._currentMenu);
@@ -641,7 +641,7 @@ export class MenuSession implements MenuSessionLike {
       this._currentMenu,
       ctx,
       this._commandInteraction,
-      resolved,
+      behavior,
     );
 
     // afterRender hook
@@ -692,7 +692,7 @@ export class MenuSession implements MenuSessionLike {
   /**
    * Await a text message reply.
    */
-  private async awaitMessageReply(timeout: number, resolved: ResolvedBehavior): Promise<void> {
+  private async awaitMessageReply(timeout: number, behavior: ResolvedBehavior): Promise<void> {
     const channel = this._commandInteraction.channel;
     if (!channel || !('awaitMessages' in channel)) return;
 
@@ -709,7 +709,7 @@ export class MenuSession implements MenuSessionLike {
       if (!message || !this._currentMenu) return;
 
       // Delete the user's message if configured to do so (best-effort)
-      if (resolved.deleteUserMessages) {
+      if (behavior.deleteUserMessages) {
         try {
           await message.delete();
         } catch {
@@ -717,11 +717,7 @@ export class MenuSession implements MenuSessionLike {
         }
       }
 
-      this._renderer.setMessageCollected(
-        resolved.oldMessageDisposal,
-        resolved.closedMessage,
-        resolved.ephemeralFallbackDisposal,
-      );
+      this._renderer.setMessageCollected(behavior);
 
       const ctx = this.buildContext(this._currentMenu);
       if (this._currentMenu.definition.handleMessage) {
@@ -742,7 +738,7 @@ export class MenuSession implements MenuSessionLike {
    */
   private async awaitMixedInteraction(
     timeout: number,
-    resolved: ResolvedBehavior,
+    behavior: ResolvedBehavior,
   ): Promise<void> {
     const channel = this._commandInteraction.channel;
     const activeMessage = this._renderer[
@@ -816,7 +812,7 @@ export class MenuSession implements MenuSessionLike {
       result.message !== undefined &&
       this._currentMenu
     ) {
-      if (resolved.deleteUserMessages) {
+      if (behavior.deleteUserMessages) {
         try {
           await result.message.delete();
         } catch {
@@ -824,11 +820,7 @@ export class MenuSession implements MenuSessionLike {
         }
       }
 
-      this._renderer.setMessageCollected(
-        resolved.oldMessageDisposal,
-        resolved.closedMessage,
-        resolved.ephemeralFallbackDisposal,
-      );
+      this._renderer.setMessageCollected(behavior);
 
       const ctx = this.buildContext(this._currentMenu);
       if (this._currentMenu.definition.handleMessage) {
@@ -846,7 +838,7 @@ export class MenuSession implements MenuSessionLike {
    */
   private async awaitModalInteraction(
     timeout: number,
-    resolved: ResolvedBehavior,
+    behavior: ResolvedBehavior,
   ): Promise<'modal' | 'component' | 'message' | 'timeout'> {
     if (!this._currentMenu) return 'timeout';
 
@@ -974,7 +966,7 @@ export class MenuSession implements MenuSessionLike {
       result.message !== undefined &&
       this._currentMenu
     ) {
-      if (resolved.deleteUserMessages) {
+      if (behavior.deleteUserMessages) {
         try {
           await result.message.delete();
         } catch {
@@ -982,11 +974,7 @@ export class MenuSession implements MenuSessionLike {
         }
       }
 
-      this._renderer.setMessageCollected(
-        resolved.oldMessageDisposal,
-        resolved.closedMessage,
-        resolved.ephemeralFallbackDisposal,
-      );
+      this._renderer.setMessageCollected(behavior);
       const ctx = this.buildContext(this._currentMenu);
       if (this._currentMenu.definition.handleMessage) {
         await this._currentMenu.definition.handleMessage(

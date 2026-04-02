@@ -93,9 +93,11 @@ export class MenuRenderer {
    * Disposal config stored by setMessageCollected(), consumed on the next
    * sendPayload call when _isReset is true.
    */
-  private _pendingDisposal: 'stripComponents' | 'delete' | 'replaceWithClosed' = 'stripComponents';
-  private _pendingClosedMessage = '*Menu closed*';
-  private _pendingEphemeralFallbackDisposal: 'stripComponents' | 'delete' = 'stripComponents';
+  private _pendingDisposalConfig: Pick<ResolvedBehavior, 'oldMessageDisposal' | 'closedMessage' | 'ephemeralFallbackDisposal'> = {
+    oldMessageDisposal: 'stripComponents',
+    closedMessage: '*Menu closed*',
+    ephemeralFallbackDisposal: 'stripComponents',
+  };
 
   get activeMessageMode(): RenderMode | null {
     return this._activeMessageMode;
@@ -106,14 +108,10 @@ export class MenuRenderer {
    * message and posts a new one via followUp.
    */
   setMessageCollected(
-    disposal: 'stripComponents' | 'delete' | 'replaceWithClosed',
-    closedMessage: string,
-    ephemeralFallbackDisposal: 'stripComponents' | 'delete',
+    config: Pick<ResolvedBehavior, 'oldMessageDisposal' | 'closedMessage' | 'ephemeralFallbackDisposal'>,
   ): void {
     this._isReset = true;
-    this._pendingDisposal = disposal;
-    this._pendingClosedMessage = closedMessage;
-    this._pendingEphemeralFallbackDisposal = ephemeralFallbackDisposal;
+    this._pendingDisposalConfig = config;
   }
 
   /**
@@ -145,7 +143,7 @@ export class MenuRenderer {
     menuInstance: MenuInstance,
     ctx: MenuContext,
     commandInteraction: ChatInputCommandInteraction,
-    resolved: ResolvedBehavior,
+    behavior: ResolvedBehavior,
   ): Promise<void> {
     const definition = menuInstance.definition;
     const newMode = definition.mode;
@@ -162,7 +160,7 @@ export class MenuRenderer {
     }
 
     // Send or update the message based on current state
-    await this.sendPayload(payload, newMode, commandInteraction, resolved);
+    await this.sendPayload(payload, newMode, commandInteraction, behavior);
   }
 
   /**
@@ -545,9 +543,9 @@ export class MenuRenderer {
     payload: RenderPayload,
     newMode: RenderMode,
     commandInteraction: ChatInputCommandInteraction,
-    resolved: ResolvedBehavior,
+    behavior: ResolvedBehavior,
   ): Promise<void> {
-    const { ephemeral } = resolved;
+    const { ephemeral } = behavior;
     const modeChanged =
       this._activeMessageMode !== null &&
       this._activeMessageMode !== newMode;
@@ -559,7 +557,7 @@ export class MenuRenderer {
 
     if (ephemeralChanged) {
       // Ephemeral state changed — dispose old message, send new as followUp.
-      await this.disposeOldMessage(resolved, commandInteraction);
+      await this.disposeOldMessage(behavior, commandInteraction);
       const followUpPayload = ephemeral
         ? this.makeEphemeral(discordPayload)
         : discordPayload;
@@ -572,7 +570,7 @@ export class MenuRenderer {
       this._lastUpdateSource = 'followUp';
     } else if (modeChanged) {
       // Mode transition — dispose old message, send new as followUp.
-      await this.disposeOldMessage(resolved, commandInteraction);
+      await this.disposeOldMessage(behavior, commandInteraction);
       const followUpPayload = ephemeral
         ? this.makeEphemeral(discordPayload)
         : discordPayload;
@@ -584,32 +582,23 @@ export class MenuRenderer {
       this._lastUpdateSource = 'followUp';
     } else if (this._isReset) {
       // After message collection — dispose old message and post new as followUp.
-      const pendingDisposal = this._pendingDisposal;
-      const pendingClosedMessage = this._pendingClosedMessage;
-      const pendingEphemeralFallback = this._pendingEphemeralFallbackDisposal;
+      const pendingDisposalConfig = this._pendingDisposalConfig;
       this._isReset = false;
-      await this.disposeOldMessage(
-        {
-          oldMessageDisposal: pendingDisposal,
-          closedMessage: pendingClosedMessage,
-          ephemeralFallbackDisposal: pendingEphemeralFallback,
-        },
-        commandInteraction,
-      );
+      await this.disposeOldMessage(pendingDisposalConfig, commandInteraction);
       const followUpPayload = ephemeral ? this.makeEphemeral(discordPayload) : discordPayload;
       const newMessage = await commandInteraction.followUp(followUpPayload);
       this._activeMessage = newMessage as Message;
       this._activeMessageEphemeral = ephemeral;
       this._activeMessageIsFollowUp = true;
       this._lastUpdateSource = 'followUp';
-    } else if (resolved.updateMode === 'postNew' && this._activeMessage !== null) {
+    } else if (behavior.updateMode === 'postNew' && this._activeMessage !== null) {
       // postNew mode — dispose old message and always post a new one.
       if (this._lastComponentInteraction) {
         // Acknowledge the component interaction without editing the message.
         await this._lastComponentInteraction.deferUpdate();
         this._lastComponentInteraction = null;
       }
-      await this.disposeOldMessage(resolved, commandInteraction);
+      await this.disposeOldMessage(behavior, commandInteraction);
       const followUpPayload = ephemeral ? this.makeEphemeral(discordPayload) : discordPayload;
       const newMessage = await commandInteraction.followUp(followUpPayload);
       this._activeMessage = newMessage as Message;
@@ -675,23 +664,23 @@ export class MenuRenderer {
    * - replaceWithClosed: replace content with the closedMessage string
    */
   private async disposeOldMessage(
-    resolved: Pick<ResolvedBehavior, 'oldMessageDisposal' | 'ephemeralFallbackDisposal' | 'closedMessage'>,
+    behavior: Pick<ResolvedBehavior, 'oldMessageDisposal' | 'ephemeralFallbackDisposal' | 'closedMessage'>,
     commandInteraction: ChatInputCommandInteraction,
   ): Promise<void> {
     if (!this._activeMessage) return;
 
     const disposal = this._activeMessageEphemeral
-      ? resolved.oldMessageDisposal === 'delete'
-        ? resolved.ephemeralFallbackDisposal
-        : resolved.oldMessageDisposal
-      : resolved.oldMessageDisposal;
+      ? behavior.oldMessageDisposal === 'delete'
+        ? behavior.ephemeralFallbackDisposal
+        : behavior.oldMessageDisposal
+      : behavior.oldMessageDisposal;
 
     try {
       if (disposal === 'delete') {
         await this.deleteOldMessage();
       } else if (disposal === 'replaceWithClosed') {
         const closePayload = {
-          content: resolved.closedMessage,
+          content: behavior.closedMessage,
           embeds: [],
           components: [],
         };
