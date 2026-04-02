@@ -580,7 +580,13 @@ export class MenuSession implements MenuSessionLike {
       ) {
         const outcome = await this.awaitModalInteraction(timeout);
         if (this._isCancelled || this._isCompleted) break;
-        if (this._didNavigate) continue;
+        if (this._didNavigate) {
+          // Discard interaction behavior — it belongs to the source menu,
+          // not the destination's first render.
+          this._renderer.setNextInteractionBehavior(undefined);
+          this._renderer.setNextInteractionTypeDefaults(undefined);
+          continue;
+        }
         if (outcome === 'timeout') break;
         continue; // Re-render after modal outcome
       }
@@ -607,7 +613,13 @@ export class MenuSession implements MenuSessionLike {
 
       // Check exit conditions after interaction
       if (this._isCancelled || this._isCompleted) break;
-      if (this._didNavigate) continue;
+      if (this._didNavigate) {
+        // Discard interaction behavior — it belongs to the source menu,
+        // not the destination's first render.
+        this._renderer.setNextInteractionBehavior(undefined);
+        this._renderer.setNextInteractionTypeDefaults(undefined);
+        continue;
+      }
 
       // --- Auto-refresh (action stayed on same menu) ---
       if (this._didHardRefresh) continue; // hardRefresh already replaced the menu, re-render from top
