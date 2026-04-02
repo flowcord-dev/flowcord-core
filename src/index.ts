@@ -143,6 +143,7 @@ export type {
 export type {
   BehaviorConfig,
   BehaviorPolicy,
+  InteractionBehavior,
   MenuBehavior,
   ResolvedBehavior,
 } from './types';
