@@ -174,7 +174,7 @@ export class MenuRenderer {
       } else if (this._activeMessage && !this._activeMessageEphemeral) {
         await this._activeMessage.edit(payload);
       } else {
-        await commandInteraction.editReply(payload);
+        await this.editEphemeralMessage(commandInteraction, payload);
       }
     } catch {
       // Best-effort cleanup — interaction may have expired
@@ -208,7 +208,7 @@ export class MenuRenderer {
       } else if (this._activeMessage && !this._activeMessageEphemeral) {
         await this._activeMessage.edit(payload);
       } else {
-        await commandInteraction.editReply(payload);
+        await this.editEphemeralMessage(commandInteraction, payload);
       }
     } catch {
       // Best-effort cleanup
