@@ -22,7 +22,10 @@
  */
 import type { EmbedBuilder } from 'discord.js';
 import type { MenuContext } from '../context/MenuContext';
-import type { MenuSessionLike, ContextExtension } from '../context/MenuContext';
+import type {
+  MenuSessionLike,
+  ContextExtension,
+} from '../context/MenuContext';
 import type { HookFn, MenuHooks } from '../lifecycle/hooks';
 import type {
   Awaitable,
@@ -44,11 +47,17 @@ import type { BehaviorConfig, MenuBehavior } from '../types/behavior';
 
 export class MenuBuilder<
   TState extends Record<string, unknown> = Record<string, unknown>,
-  TSessionState extends Record<string, unknown> = Record<string, unknown>,
-  TCtx extends MenuContext<TState, TSessionState> = MenuContext<TState, TSessionState>,
-  TMode extends 'unset' | 'embeds' | 'layout' = 'unset'
+  TSessionState extends Record<string, unknown> = Record<
+    string,
+    unknown
+  >,
+  TCtx extends MenuContext<TState, TSessionState> = MenuContext<
+    TState,
+    TSessionState
+  >,
+  TMode extends 'unset' | 'embeds' | 'layout' = 'unset',
 > {
-  protected declare readonly _typeMode?: TMode;
+  declare protected readonly _typeMode?: TMode;
 
   protected readonly _name: string;
   protected readonly _sessionLike: MenuSessionLike;
@@ -57,14 +66,23 @@ export class MenuBuilder<
   // Callbacks
   protected _setup?: (ctx: TCtx) => Awaitable<void>;
   protected _setEmbeds?: (ctx: TCtx) => Awaitable<EmbedBuilder[]>;
-  protected _setButtons?: (ctx: TCtx) => Awaitable<ButtonConfig<TCtx>[]>;
+  protected _setButtons?: (
+    ctx: TCtx,
+  ) => Awaitable<ButtonConfig<TCtx>[]>;
   protected _setButtonsOptions?: SetButtonsOptions;
-  protected _setSelectMenu?: (ctx: TCtx) => Awaitable<SelectConfig<TCtx>>;
+  protected _setSelectMenu?: (
+    ctx: TCtx,
+  ) => Awaitable<SelectConfig<TCtx>>;
   protected _setModal?: (
-    ctx: TCtx
+    ctx: TCtx,
   ) => Awaitable<ModalConfig<TCtx> | ModalConfig<TCtx>[]>;
-  protected _setLayout?: (ctx: TCtx) => Awaitable<ComponentConfig<TCtx>[]>;
-  protected _handleMessage?: (ctx: TCtx, response: string) => Awaitable<void>;
+  protected _setLayout?: (
+    ctx: TCtx,
+  ) => Awaitable<ComponentConfig<TCtx>[]>;
+  protected _handleMessage?: (
+    ctx: TCtx,
+    response: string,
+  ) => Awaitable<void>;
 
   // Lifecycle hooks
   protected readonly _hooks: MenuHooks<TCtx> = {};
@@ -92,7 +110,7 @@ export class MenuBuilder<
   constructor(
     sessionLike: MenuSessionLike,
     name: string,
-    options?: Record<string, unknown>
+    options?: Record<string, unknown>,
   ) {
     this._sessionLike = sessionLike;
     this._name = name;
@@ -121,12 +139,22 @@ export class MenuBuilder<
    * Switches the builder to embed mode.
    */
   setEmbeds(
-    this: MenuBuilder<TState, TSessionState, TCtx, 'unset' | 'embeds'>,
-    fn: (ctx: TCtx) => Awaitable<EmbedBuilder[]>
+    this: MenuBuilder<
+      TState,
+      TSessionState,
+      TCtx,
+      'unset' | 'embeds'
+    >,
+    fn: (ctx: TCtx) => Awaitable<EmbedBuilder[]>,
   ): MenuBuilder<TState, TSessionState, TCtx, 'embeds'> {
     this._setEmbeds = fn;
     this._mode = 'embeds';
-    return this as unknown as MenuBuilder<TState, TSessionState, TCtx, 'embeds'>;
+    return this as unknown as MenuBuilder<
+      TState,
+      TSessionState,
+      TCtx,
+      'embeds'
+    >;
   }
 
   /**
@@ -134,26 +162,46 @@ export class MenuBuilder<
    * Optional pagination options for embed-mode button pagination.
    */
   setButtons(
-    this: MenuBuilder<TState, TSessionState, TCtx, 'unset' | 'embeds'>,
+    this: MenuBuilder<
+      TState,
+      TSessionState,
+      TCtx,
+      'unset' | 'embeds'
+    >,
     fn: (ctx: TCtx) => Awaitable<ButtonInputConfig<TCtx>[]>,
-    options?: SetButtonsOptions
+    options?: SetButtonsOptions,
   ): MenuBuilder<TState, TSessionState, TCtx, 'embeds'> {
     this._setButtons = normalizeButtonsFn(fn);
     this._setButtonsOptions = options;
     this._mode = 'embeds';
-    return this as unknown as MenuBuilder<TState, TSessionState, TCtx, 'embeds'>;
+    return this as unknown as MenuBuilder<
+      TState,
+      TSessionState,
+      TCtx,
+      'embeds'
+    >;
   }
 
   /**
    * Set the select menu rendering callback.
    */
   setSelectMenu(
-    this: MenuBuilder<TState, TSessionState, TCtx, 'unset' | 'embeds'>,
-    fn: (ctx: TCtx) => Awaitable<SelectInputConfig<TCtx>>
+    this: MenuBuilder<
+      TState,
+      TSessionState,
+      TCtx,
+      'unset' | 'embeds'
+    >,
+    fn: (ctx: TCtx) => Awaitable<SelectInputConfig<TCtx>>,
   ): MenuBuilder<TState, TSessionState, TCtx, 'embeds'> {
     this._setSelectMenu = normalizeSelectFn(fn);
     this._mode = 'embeds';
-    return this as unknown as MenuBuilder<TState, TSessionState, TCtx, 'embeds'>;
+    return this as unknown as MenuBuilder<
+      TState,
+      TSessionState,
+      TCtx,
+      'embeds'
+    >;
   }
 
   // -----------------------------------------------------------------------
@@ -166,12 +214,22 @@ export class MenuBuilder<
    * Cannot be combined with setEmbeds/setButtons/setSelectMenu.
    */
   setLayout(
-    this: MenuBuilder<TState, TSessionState, TCtx, 'unset' | 'layout'>,
-    fn: (ctx: TCtx) => Awaitable<ComponentConfig<TCtx>[]>
+    this: MenuBuilder<
+      TState,
+      TSessionState,
+      TCtx,
+      'unset' | 'layout'
+    >,
+    fn: (ctx: TCtx) => Awaitable<ComponentConfig<TCtx>[]>,
   ): MenuBuilder<TState, TSessionState, TCtx, 'layout'> {
     this._setLayout = fn;
     this._mode = 'layout';
-    return this as unknown as MenuBuilder<TState, TSessionState, TCtx, 'layout'>;
+    return this as unknown as MenuBuilder<
+      TState,
+      TSessionState,
+      TCtx,
+      'layout'
+    >;
   }
 
   // -----------------------------------------------------------------------
@@ -184,7 +242,9 @@ export class MenuBuilder<
    * (each with a unique `id` field).
    */
   setModal(
-    fn: (ctx: TCtx) => Awaitable<ModalConfig<TCtx> | ModalConfig<TCtx>[]>
+    fn: (
+      ctx: TCtx,
+    ) => Awaitable<ModalConfig<TCtx> | ModalConfig<TCtx>[]>,
   ): this {
     this._setModal = fn;
     return this;
@@ -192,7 +252,7 @@ export class MenuBuilder<
 
   /** Enable text message input handling. Works in both modes. */
   setMessageHandler(
-    fn: (ctx: TCtx, response: string) => Awaitable<void>
+    fn: (ctx: TCtx, response: string) => Awaitable<void>,
   ): this {
     this._handleMessage = fn;
     return this;
@@ -283,20 +343,20 @@ export class MenuBuilder<
       ephemeralFallback?: 'stripComponents' | 'replaceWithClosed';
       closedMessage?: string;
       deleteUserMessages?: boolean;
-    }
+    },
   ): this;
   setOldMessageDisposal(
     mode: 'replaceWithClosed',
     options?: {
       closedMessage?: string;
       deleteUserMessages?: boolean;
-    }
+    },
   ): this;
   setOldMessageDisposal(
     mode: 'stripComponents',
     options?: {
       deleteUserMessages?: boolean;
-    }
+    },
   ): this;
   setOldMessageDisposal(
     mode: 'stripComponents' | 'delete' | 'replaceWithClosed',
@@ -304,7 +364,7 @@ export class MenuBuilder<
       ephemeralFallback?: 'stripComponents' | 'replaceWithClosed';
       closedMessage?: string;
       deleteUserMessages?: boolean;
-    }
+    },
   ): this {
     this._behavior = {
       ...this._behavior,
@@ -376,7 +436,10 @@ export class MenuBuilder<
    * Instead of closing the session, navigates to this menu.
    * Useful for menus that can be opened directly but should return to a parent.
    */
-  setFallbackMenu(menuId: string, options?: Record<string, unknown>): this {
+  setFallbackMenu(
+    menuId: string,
+    options?: Record<string, unknown>,
+  ): this {
     this._fallbackMenu = menuId;
     this._fallbackMenuOptions = options;
     return this;
@@ -441,10 +504,10 @@ export class MenuBuilder<
    * Used by builder subclasses like AdminMenuBuilder to add domain helpers.
    */
   extendContext<TExtra extends Record<string, unknown>>(
-    fn: ContextExtension<TExtra>
+    fn: ContextExtension<TExtra>,
   ): this {
     this._contextExtensions.push(
-      fn as (baseCtx: MenuContext) => Record<string, unknown>
+      fn as (baseCtx: MenuContext) => Record<string, unknown>,
     );
     return this;
   }
@@ -459,9 +522,11 @@ export class MenuBuilder<
    */
   fromDefinition(def: Partial<MenuDefinitionLiteral<TCtx>>): this {
     if (def.embeds) this._setEmbeds = def.embeds;
-    if (def.buttons) this._setButtons = normalizeButtonsFn(def.buttons);
+    if (def.buttons)
+      this._setButtons = normalizeButtonsFn(def.buttons);
     if (def.layout) this._setLayout = def.layout;
-    if (def.selectMenu) this._setSelectMenu = normalizeSelectFn(def.selectMenu);
+    if (def.selectMenu)
+      this._setSelectMenu = normalizeSelectFn(def.selectMenu);
     if (def.modal) this._setModal = def.modal;
     if (def.messageHandler) this._handleMessage = def.messageHandler;
     if (def.setup) this._setup = def.setup;
@@ -494,7 +559,7 @@ export class MenuBuilder<
     // Validate: at least one rendering method must be set
     if (!this._setEmbeds && !this._setLayout) {
       throw new Error(
-        `Menu "${this._name}": must call either setEmbeds() or setLayout().`
+        `Menu "${this._name}": must call either setEmbeds() or setLayout().`,
       );
     }
 
@@ -502,14 +567,14 @@ export class MenuBuilder<
     if (this._setEmbeds && this._setLayout) {
       throw new Error(
         `Menu "${this._name}": cannot use both setEmbeds() and setLayout(). ` +
-          `Choose one rendering mode.`
+          `Choose one rendering mode.`,
       );
     }
 
     // Validate: select menu not allowed with button pagination
     if (this._setSelectMenu && this._setButtonsOptions?.pagination) {
       throw new Error(
-        `Menu "${this._name}": select menus cannot be used with button pagination.`
+        `Menu "${this._name}": select menus cannot be used with button pagination.`,
       );
     }
 
@@ -519,12 +584,16 @@ export class MenuBuilder<
       name: this._name,
       mode,
       hooks: this._hooks as MenuHooks,
-      setup: this._setup as ((ctx: MenuContext) => Awaitable<void>) | undefined,
+      setup: this._setup as
+        | ((ctx: MenuContext) => Awaitable<void>)
+        | undefined,
       setEmbeds: this._setEmbeds as
         | ((ctx: MenuContext) => Awaitable<EmbedBuilder[]>)
         | undefined,
       setButtons: this._setButtons as
-        | ((ctx: MenuContext) => Awaitable<ButtonConfig<MenuContext>[]>)
+        | ((
+            ctx: MenuContext,
+          ) => Awaitable<ButtonConfig<MenuContext>[]>)
         | undefined,
       setButtonsOptions: this._setButtonsOptions,
       setSelectMenu: this._setSelectMenu as
@@ -532,16 +601,22 @@ export class MenuBuilder<
         | undefined,
       setModal: this._setModal as
         | ((
-            ctx: MenuContext
-          ) => Awaitable<ModalConfig<MenuContext> | ModalConfig<MenuContext>[]>)
+            ctx: MenuContext,
+          ) => Awaitable<
+            ModalConfig<MenuContext> | ModalConfig<MenuContext>[]
+          >)
         | undefined,
       setLayout: this._setLayout as
-        | ((ctx: MenuContext) => Awaitable<ComponentConfig<MenuContext>[]>)
+        | ((
+            ctx: MenuContext,
+          ) => Awaitable<ComponentConfig<MenuContext>[]>)
         | undefined,
       handleMessage: this._handleMessage as
         | ((ctx: MenuContext, response: string) => Awaitable<void>)
         | undefined,
-      listPagination: this._listPagination as ListPaginationOptions<MenuContext> | undefined,
+      listPagination: this._listPagination as
+        | ListPaginationOptions<MenuContext>
+        | undefined,
       behavior: this._behavior,
       isTrackedInHistory: this._isTrackedInHistory,
       isCancellable: this._isCancellable,
@@ -563,7 +638,9 @@ export interface MenuDefinitionLiteral<TCtx = MenuContext> {
   buttons?: (ctx: TCtx) => Awaitable<ButtonInputConfig<TCtx>[]>;
   layout?: (ctx: TCtx) => Awaitable<ComponentConfig<TCtx>[]>;
   selectMenu?: (ctx: TCtx) => Awaitable<SelectInputConfig<TCtx>>;
-  modal?: (ctx: TCtx) => Awaitable<ModalConfig<TCtx> | ModalConfig<TCtx>[]>;
+  modal?: (
+    ctx: TCtx,
+  ) => Awaitable<ModalConfig<TCtx> | ModalConfig<TCtx>[]>;
   messageHandler?: (ctx: TCtx, response: string) => Awaitable<void>;
   setup?: (ctx: TCtx) => Awaitable<void>;
   hooks?: MenuHooks<TCtx>;
@@ -584,7 +661,7 @@ export interface MenuDefinitionLiteral<TCtx = MenuContext> {
  * Used by setter methods so the stored callback is already normalized.
  */
 function normalizeButtonsFn<TCtx>(
-  fn: (ctx: TCtx) => Awaitable<ButtonInputConfig<TCtx>[]>
+  fn: (ctx: TCtx) => Awaitable<ButtonInputConfig<TCtx>[]>,
 ): (ctx: TCtx) => Promise<ButtonConfig<TCtx>[]> {
   return async (ctx) => {
     const inputs = await fn(ctx);
@@ -597,7 +674,7 @@ function normalizeButtonsFn<TCtx>(
  * into one returning SelectConfig (type required).
  */
 function normalizeSelectFn<TCtx>(
-  fn: (ctx: TCtx) => Awaitable<SelectInputConfig<TCtx>>
+  fn: (ctx: TCtx) => Awaitable<SelectInputConfig<TCtx>>,
 ): (ctx: TCtx) => Promise<SelectConfig<TCtx>> {
   return async (ctx) => {
     const input = await fn(ctx);

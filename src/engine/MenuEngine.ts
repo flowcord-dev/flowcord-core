@@ -45,7 +45,7 @@ const getErrorMessage = (error: unknown): string => {
 
 const buildDefaultErrorEmbed = (
   interaction: ChatInputCommandInteraction,
-  error: unknown
+  error: unknown,
 ): EmbedBuilder => {
   const errorMessage = getErrorMessage(error);
 
@@ -62,7 +62,7 @@ const buildDefaultErrorEmbed = (
 
 const defaultOnError = async (
   interaction: ChatInputCommandInteraction,
-  error: unknown
+  error: unknown,
 ): Promise<void> => {
   const errorEmbed = buildDefaultErrorEmbed(interaction, error);
 
@@ -81,7 +81,10 @@ const defaultOnError = async (
       ephemeral: true,
     });
   } catch (discordError) {
-    console.error('[FlowCord] Failed to send error response:', discordError);
+    console.error(
+      '[FlowCord] Failed to send error response:',
+      discordError,
+    );
   }
 };
 
@@ -161,15 +164,22 @@ export class MenuEngine {
     interaction: ChatInputCommandInteraction,
     menuName: string,
     commandOptions?: Record<string, unknown>,
-    interactionOptions?: HandleInteractionOptions
+    interactionOptions?: HandleInteractionOptions,
   ): Promise<void> {
     const session = this.createSession(interaction);
 
     try {
-      await session.initialize(menuName, commandOptions, interactionOptions);
+      await session.initialize(
+        menuName,
+        commandOptions,
+        interactionOptions,
+      );
     } catch (error) {
       this.removeSession(session.id);
-      console.error(`[FlowCord] Error in session ${session.id}`, error);
+      console.error(
+        `[FlowCord] Error in session ${session.id}`,
+        error,
+      );
       if (this._config.onError) {
         await this._config.onError(session, error);
       } else {
@@ -181,7 +191,9 @@ export class MenuEngine {
   /**
    * Create a new MenuSession and register it for interaction routing.
    */
-  createSession(interaction: ChatInputCommandInteraction): MenuSession {
+  createSession(
+    interaction: ChatInputCommandInteraction,
+  ): MenuSession {
     const session = new MenuSession(this, interaction);
     this._sessions.set(session.id, session);
     return session;
@@ -203,7 +215,9 @@ export class MenuEngine {
    *
    * @returns true if the interaction was routed to a session, false otherwise
    */
-  routeComponentInteraction(interaction: MessageComponentInteraction): boolean {
+  routeComponentInteraction(
+    interaction: MessageComponentInteraction,
+  ): boolean {
     const parsed = ComponentIdManager.parse(interaction.customId);
     if (!parsed) return false;
 

@@ -15,7 +15,7 @@ export interface ParsedComponentId {
 export class ComponentIdManager {
   constructor(
     private readonly sessionId: string,
-    private readonly menuId: string
+    private readonly menuId: string,
   ) {}
 
   /**

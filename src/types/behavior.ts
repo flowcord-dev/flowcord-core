@@ -39,7 +39,10 @@ export interface BehaviorConfig {
    *   to ephemeralFallbackDisposal
    * - 'replaceWithClosed': replace content with the closedMessage string
    */
-  oldMessageDisposal?: 'stripComponents' | 'delete' | 'replaceWithClosed';
+  oldMessageDisposal?:
+    | 'stripComponents'
+    | 'delete'
+    | 'replaceWithClosed';
 
   /**
    * Fallback disposal used when oldMessageDisposal is 'delete' but the
@@ -108,7 +111,10 @@ export interface MenuBehavior {
 export interface ResolvedBehavior {
   ephemeral: boolean;
   updateMode: 'editInPlace' | 'postNew';
-  oldMessageDisposal: 'stripComponents' | 'delete' | 'replaceWithClosed';
+  oldMessageDisposal:
+    | 'stripComponents'
+    | 'delete'
+    | 'replaceWithClosed';
   ephemeralFallbackDisposal: 'stripComponents' | 'replaceWithClosed';
   closedMessage: string;
   deleteUserMessages: boolean;
@@ -124,15 +130,51 @@ export interface ResolvedBehavior {
 export function resolveBehavior(
   builderBehavior: MenuBehavior | undefined,
   sessionPolicy: BehaviorPolicy | undefined,
-  globalPolicy: BehaviorPolicy | undefined
+  globalPolicy: BehaviorPolicy | undefined,
 ): ResolvedBehavior {
   return {
-    ephemeral: resolveField('ephemeral', builderBehavior, sessionPolicy, globalPolicy, false),
-    updateMode: resolveField('updateMode', builderBehavior, sessionPolicy, globalPolicy, 'editInPlace'),
-    oldMessageDisposal: resolveField('oldMessageDisposal', builderBehavior, sessionPolicy, globalPolicy, 'stripComponents'),
-    ephemeralFallbackDisposal: resolveField('ephemeralFallbackDisposal', builderBehavior, sessionPolicy, globalPolicy, 'stripComponents'),
-    closedMessage: resolveField('closedMessage', builderBehavior, sessionPolicy, globalPolicy, '*Menu closed*'),
-    deleteUserMessages: resolveField('deleteUserMessages', builderBehavior, sessionPolicy, globalPolicy, false),
+    ephemeral: resolveField(
+      'ephemeral',
+      builderBehavior,
+      sessionPolicy,
+      globalPolicy,
+      false,
+    ),
+    updateMode: resolveField(
+      'updateMode',
+      builderBehavior,
+      sessionPolicy,
+      globalPolicy,
+      'editInPlace',
+    ),
+    oldMessageDisposal: resolveField(
+      'oldMessageDisposal',
+      builderBehavior,
+      sessionPolicy,
+      globalPolicy,
+      'stripComponents',
+    ),
+    ephemeralFallbackDisposal: resolveField(
+      'ephemeralFallbackDisposal',
+      builderBehavior,
+      sessionPolicy,
+      globalPolicy,
+      'stripComponents',
+    ),
+    closedMessage: resolveField(
+      'closedMessage',
+      builderBehavior,
+      sessionPolicy,
+      globalPolicy,
+      '*Menu closed*',
+    ),
+    deleteUserMessages: resolveField(
+      'deleteUserMessages',
+      builderBehavior,
+      sessionPolicy,
+      globalPolicy,
+      false,
+    ),
   };
 }
 
@@ -141,7 +183,7 @@ function resolveField<T>(
   builder: MenuBehavior | undefined,
   session: BehaviorPolicy | undefined,
   global: BehaviorPolicy | undefined,
-  fallback: T
+  fallback: T,
 ): T {
   return (
     (global?.override?.[key] as T | undefined) ??

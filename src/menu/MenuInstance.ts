@@ -5,7 +5,10 @@
  * context, state, and delegates rendering/action handling.
  */
 import { ButtonStyle } from 'discord.js';
-import type { MenuInstanceLike, ResponseType } from '../context/MenuContext';
+import type {
+  MenuInstanceLike,
+  ResponseType,
+} from '../context/MenuContext';
 import type { MenuDefinition } from '../registry/MenuRegistry';
 import type {
   Action,
@@ -19,9 +22,8 @@ import { StateAccessor } from '../state/StateAccessor';
 import { ComponentIdManager } from '../components/ComponentIdManager';
 
 export class MenuInstance<
-  TState extends Record<string, unknown> = Record<string, unknown>
-> implements MenuInstanceLike
-{
+  TState extends Record<string, unknown> = Record<string, unknown>,
+> implements MenuInstanceLike {
   readonly definition: MenuDefinition;
   readonly idManager: ComponentIdManager;
   readonly stateAccessor: StateAccessor<TState>;
@@ -53,12 +55,15 @@ export class MenuInstance<
   constructor(
     definition: MenuDefinition,
     sessionId: string,
-    initialState?: TState
+    initialState?: TState,
   ) {
     this.definition = definition;
-    this.idManager = new ComponentIdManager(sessionId, definition.name);
+    this.idManager = new ComponentIdManager(
+      sessionId,
+      definition.name,
+    );
     this.stateAccessor = new StateAccessor<TState>(
-      initialState ?? ({} as TState)
+      initialState ?? ({} as TState),
     );
   }
 
@@ -158,7 +163,9 @@ export class MenuInstance<
 
       if (btn.opensModal) {
         const modalId =
-          typeof btn.opensModal === 'string' ? btn.opensModal : '__default';
+          typeof btn.opensModal === 'string'
+            ? btn.opensModal
+            : '__default';
         this._modalButtonMap.set(id, modalId);
         // Register a placeholder action so the routing picks it up;
         // the session handles the actual showModal() call.
@@ -231,7 +238,7 @@ export class MenuInstance<
       | ButtonConfig
       | SelectConfig
       | { type: string; children?: unknown[] }
-    )[]
+    )[],
   ): void {
     for (const component of components) {
       if (component.type === 'button') {
@@ -248,7 +255,9 @@ export class MenuInstance<
 
         if (btn.opensModal) {
           const modalId =
-            typeof btn.opensModal === 'string' ? btn.opensModal : '__default';
+            typeof btn.opensModal === 'string'
+              ? btn.opensModal
+              : '__default';
           this._modalButtonMap.set(id, modalId);
           this.registerAction(id, async () => {
             /* modal trigger */
@@ -265,16 +274,22 @@ export class MenuInstance<
         };
         this.registerLayoutActions(row.children);
       } else if (component.type === 'container') {
-        const container = component as { type: string; children: unknown[] };
+        const container = component as {
+          type: string;
+          children: unknown[];
+        };
         this.registerLayoutActions(
           container.children as (
             | ButtonConfig
             | SelectConfig
             | { type: string; children?: unknown[] }
-          )[]
+          )[],
         );
       } else if (component.type === 'section') {
-        const section = component as { type: string; accessory?: ButtonConfig };
+        const section = component as {
+          type: string;
+          accessory?: ButtonConfig;
+        };
         if (section.accessory?.type === 'button') {
           const acc = section.accessory;
           const id = acc.id ?? `__btn_${this._actionMap.size}`;
@@ -289,7 +304,9 @@ export class MenuInstance<
 
           if (acc.opensModal) {
             const modalId =
-              typeof acc.opensModal === 'string' ? acc.opensModal : '__default';
+              typeof acc.opensModal === 'string'
+                ? acc.opensModal
+                : '__default';
             this._modalButtonMap.set(id, modalId);
             this.registerAction(id, async () => {
               /* modal trigger */
@@ -299,7 +316,10 @@ export class MenuInstance<
           }
         }
       } else if (component.type === 'paginated_group') {
-        const group = component as { type: string; buttons: ButtonConfig[] };
+        const group = component as {
+          type: string;
+          buttons: ButtonConfig[];
+        };
         this.registerButtonActions(group.buttons);
       }
     }
@@ -327,19 +347,19 @@ export class MenuInstance<
       if (!btn.url) {
         throw new Error(
           `[FlowCord] Menu "${menuName}": Link button "${label}" is missing a \`url\`. ` +
-            `Link buttons require a URL.`
+            `Link buttons require a URL.`,
         );
       }
       if (btn.action) {
         throw new Error(
           `[FlowCord] Menu "${menuName}": Link button "${label}" cannot define \`action\`. ` +
-            `Link buttons are handled by Discord and do not generate interactions.`
+            `Link buttons are handled by Discord and do not generate interactions.`,
         );
       }
       if (btn.opensModal) {
         throw new Error(
           `[FlowCord] Menu "${menuName}": Link button "${label}" cannot define \`opensModal\`. ` +
-            `Link buttons are handled by Discord and do not generate interactions.`
+            `Link buttons are handled by Discord and do not generate interactions.`,
         );
       }
       return;
@@ -349,7 +369,7 @@ export class MenuInstance<
     if (btn.action && btn.opensModal) {
       throw new Error(
         `[FlowCord] Menu "${menuName}": Button "${label}" cannot define both \`action\` and \`opensModal\`. ` +
-          `Choose exactly one interaction behavior.`
+          `Choose exactly one interaction behavior.`,
       );
     }
 
@@ -357,7 +377,7 @@ export class MenuInstance<
     if (!btn.disabled && !btn.action && !btn.opensModal) {
       throw new Error(
         `[FlowCord] Menu "${menuName}": Button "${label}" must define either \`action\` or \`opensModal\`, ` +
-          `or be explicitly disabled.`
+          `or be explicitly disabled.`,
       );
     }
   }

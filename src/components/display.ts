@@ -45,7 +45,7 @@ export interface ButtonOptions<TCtx = MenuContextLike> {
 
 /** Create a button component with an associated action. */
 export function button<TCtx = MenuContextLike>(
-  opts: ButtonOptions<TCtx>
+  opts: ButtonOptions<TCtx>,
 ): ButtonConfig<TCtx> {
   return {
     type: 'button',
@@ -68,7 +68,7 @@ export interface SelectOptions<TCtx = MenuContextLike> {
 
 /** Create a select menu config with an associated action. */
 export function select<TCtx = MenuContextLike>(
-  opts: SelectOptions<TCtx>
+  opts: SelectOptions<TCtx>,
 ): SelectConfig<TCtx> {
   return {
     type: 'select',
@@ -80,7 +80,7 @@ export function select<TCtx = MenuContextLike>(
 
 /** Create an action row containing buttons and/or select menus. */
 export function actionRow<TCtx = MenuContextLike>(
-  children: (ButtonConfig<TCtx> | SelectConfig<TCtx>)[]
+  children: (ButtonConfig<TCtx> | SelectConfig<TCtx>)[],
 ): ActionRowConfig<TCtx> {
   return {
     type: 'action_row',
@@ -104,7 +104,7 @@ export interface SectionOptions<TCtx = MenuContextLike> {
 
 /** Create a section with text content and an accessory (button or thumbnail). */
 export function section<TCtx = MenuContextLike>(
-  opts: SectionOptions<TCtx>
+  opts: SectionOptions<TCtx>,
 ): SectionConfig<TCtx> {
   return {
     type: 'section',
@@ -121,7 +121,7 @@ export interface ContainerOptions<TCtx = MenuContextLike> {
 
 /** Create a container that groups components with an optional accent color. */
 export function container<TCtx = MenuContextLike>(
-  opts: ContainerOptions<TCtx>
+  opts: ContainerOptions<TCtx>,
 ): ContainerConfig<TCtx> {
   return {
     type: 'container',
@@ -167,7 +167,7 @@ export function thumbnail(opts: ThumbnailOptions): ThumbnailConfig {
 
 /** Create a media gallery with one or more media items. */
 export function mediaGallery(
-  items: MediaGalleryItemConfig[]
+  items: MediaGalleryItemConfig[],
 ): MediaGalleryConfig {
   return {
     type: 'media_gallery',
@@ -204,7 +204,7 @@ export function file(opts: FileOptions): FileConfig {
  */
 export function paginatedGroup<TCtx = MenuContextLike>(
   buttons: ButtonConfig<TCtx>[],
-  options?: ButtonPaginationOptions
+  options?: ButtonPaginationOptions,
 ): PaginatedGroupConfig<TCtx> {
   return {
     type: 'paginated_group',

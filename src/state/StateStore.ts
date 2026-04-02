@@ -7,7 +7,7 @@
  * Falls back to untyped access when using the default generic.
  */
 export class StateStore<
-  T extends Record<string, unknown> = Record<string, unknown>
+  T extends Record<string, unknown> = Record<string, unknown>,
 > {
   private readonly _data = new Map<string, unknown>();
 

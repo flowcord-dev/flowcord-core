@@ -118,12 +118,15 @@ flowcord.registerMenu('hello', (session) =>
       },
     ])
     .setCancellable()
-    .build()
+    .build(),
 );
 
 // Route interactions
 client.on('interactionCreate', async (interaction) => {
-  if (interaction.isChatInputCommand() && interaction.commandName === 'hello') {
+  if (
+    interaction.isChatInputCommand() &&
+    interaction.commandName === 'hello'
+  ) {
     await flowcord.handleInteraction(interaction, 'hello');
   } else if (interaction.isMessageComponent()) {
     flowcord.routeComponentInteraction(interaction);
@@ -145,15 +148,16 @@ The `FlowCord` class is the main entry point. It wraps the internal `MenuEngine`
 
 ```ts
 const flowcord = new FlowCord({
-  client,          // Your Discord.js Client
+  client, // Your Discord.js Client
   timeout: 120_000, // Session timeout in ms (default: 2 minutes)
   onError: async (session, error) => {
     console.error('FlowCord error:', error);
   },
   enableTracing: false, // Enable navigation tracing (default: false)
-  behavior: {      // Optional: global behavior policy (see Behavior Policy)
-    default:   { ephemeral: false },
-    override:  { ephemeral: true },
+  behavior: {
+    // Optional: global behavior policy (see Behavior Policy)
+    default: { ephemeral: false },
+    override: { ephemeral: true },
   },
 });
 
@@ -164,8 +168,8 @@ flowcord.registerMenu('menu-name', menuFactory);
 await flowcord.handleInteraction(
   interaction,
   'menu-name',
-  commandOptions,      // Passed to the menu factory as ctx.options
-  interactionOptions,  // { entryEphemeral?, behavior? }
+  commandOptions, // Passed to the menu factory as ctx.options
+  interactionOptions, // { entryEphemeral?, behavior? }
 );
 
 // Route button/select clicks → dispatches to active session
@@ -211,7 +215,10 @@ interface MenuContext<TState, TSessionState> {
   sessionState: StateStore<TSessionState>; // Typed session-wide state
 
   // Navigation
-  goTo(menuId: string, options?: Record<string, unknown>): Promise<void>;
+  goTo(
+    menuId: string,
+    options?: Record<string, unknown>,
+  ): Promise<void>;
   goBack(result?: unknown): Promise<void>;
   close(): Promise<void>;
   hardRefresh(): Promise<void>;
@@ -294,7 +301,10 @@ new MenuBuilder<MyMenuState>(session, 'counter')
 type SessionState = { selectedItem: string };
 
 // In menu A
-new MenuBuilder<MyMenuState, SessionState>(session, 'menu-a').setButtons(() => [
+new MenuBuilder<MyMenuState, SessionState>(
+  session,
+  'menu-a',
+).setButtons(() => [
   {
     label: 'Pick',
     style: ButtonStyle.Primary,
@@ -439,15 +449,15 @@ new MenuBuilder(session, 'profile')
             .setCustomId('nickname')
             .setLabel('Nickname')
             .setStyle(TextInputStyle.Short)
-            .setRequired(true)
+            .setRequired(true),
         ),
         new ActionRowBuilder<TextInputBuilder>().addComponents(
           new TextInputBuilder()
             .setCustomId('bio')
             .setLabel('Bio')
             .setStyle(TextInputStyle.Paragraph)
-            .setRequired(false)
-        )
+            .setRequired(false),
+        ),
       ),
     onSubmit: async (ctx, fields) => {
       const nickname = fields.getTextInputValue('nickname');
@@ -650,14 +660,14 @@ Each level has a `default` (applied when no more-specific level declares a value
 
 #### Configurable behaviors
 
-| Field | Default | Description |
-|---|---|---|
-| `ephemeral` | `false` | Whether the menu reply is visible only to the invoking user |
-| `updateMode` | `'editInPlace'` | `'editInPlace'`: edit/update the existing message in-place. `'postNew'`: dispose the old message and post a new one after every interaction, keeping the active menu at the bottom of the chat |
-| `oldMessageDisposal` | `'stripComponents'` | How the old message is treated when it must be replaced. `'stripComponents'`: remove components, leave content. `'delete'`: delete the message (falls back to `ephemeralFallbackDisposal` for ephemeral messages). `'replaceWithClosed'`: replace content with `closedMessage` |
-| `ephemeralFallbackDisposal` | `'stripComponents'` | Fallback for `'delete'` when the message is ephemeral (Discord cannot delete ephemeral messages via REST). `'stripComponents'` or `'replaceWithClosed'` |
-| `closedMessage` | `'*Menu closed*'` | Content shown when disposal mode is `'replaceWithClosed'` |
-| `deleteUserMessages` | `false` | Whether to attempt deleting the user's typed message (best-effort, requires permissions) after `setMessageHandler` collects it |
+| Field                       | Default             | Description                                                                                                                                                                                                                                                                    |
+| --------------------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `ephemeral`                 | `false`             | Whether the menu reply is visible only to the invoking user                                                                                                                                                                                                                    |
+| `updateMode`                | `'editInPlace'`     | `'editInPlace'`: edit/update the existing message in-place. `'postNew'`: dispose the old message and post a new one after every interaction, keeping the active menu at the bottom of the chat                                                                                 |
+| `oldMessageDisposal`        | `'stripComponents'` | How the old message is treated when it must be replaced. `'stripComponents'`: remove components, leave content. `'delete'`: delete the message (falls back to `ephemeralFallbackDisposal` for ephemeral messages). `'replaceWithClosed'`: replace content with `closedMessage` |
+| `ephemeralFallbackDisposal` | `'stripComponents'` | Fallback for `'delete'` when the message is ephemeral (Discord cannot delete ephemeral messages via REST). `'stripComponents'` or `'replaceWithClosed'`                                                                                                                        |
+| `closedMessage`             | `'*Menu closed*'`   | Content shown when disposal mode is `'replaceWithClosed'`                                                                                                                                                                                                                      |
+| `deleteUserMessages`        | `false`             | Whether to attempt deleting the user's typed message (best-effort, requires permissions) after `setMessageHandler` collects it                                                                                                                                                 |
 
 #### Global policy
 
@@ -667,8 +677,8 @@ Set on the `FlowCord` constructor; applies to all sessions:
 const flowcord = new FlowCord({
   client,
   behavior: {
-    default:  { ephemeral: false, updateMode: 'editInPlace' },
-    override: { ephemeral: true },  // forces all menus ephemeral regardless of builder
+    default: { ephemeral: false, updateMode: 'editInPlace' },
+    override: { ephemeral: true }, // forces all menus ephemeral regardless of builder
   },
 });
 ```
@@ -678,13 +688,18 @@ const flowcord = new FlowCord({
 Set per-invocation via `handleInteraction`; applies to all menus in that session:
 
 ```ts
-await flowcord.handleInteraction(interaction, 'my-menu', {}, {
-  entryEphemeral: true, // async factory timing; explicit priority
-  behavior: {
-    default:  { ephemeral: true, oldMessageDisposal: 'delete' },
-    override: { updateMode: 'postNew' }, // all menus in this session always repost
+await flowcord.handleInteraction(
+  interaction,
+  'my-menu',
+  {},
+  {
+    entryEphemeral: true, // async factory timing; explicit priority
+    behavior: {
+      default: { ephemeral: true, oldMessageDisposal: 'delete' },
+      override: { updateMode: 'postNew' }, // all menus in this session always repost
+    },
   },
-});
+);
 ```
 
 #### Builder-level setters
@@ -753,49 +768,49 @@ const events = flowcord.tracer.events;
 
 ### `FlowCord`
 
-| Method                                               | Description                                                           |
-| ---------------------------------------------------- | --------------------------------------------------------------------- |
-| `new FlowCord(config)`                                                          | Create instance with `{ client, timeout?, onError?, enableTracing?, behavior? }` |
-| `registerMenu(name, factory)`                                                   | Register a menu factory function                                                 |
+| Method                                                                           | Description                                                                      |
+| -------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| `new FlowCord(config)`                                                           | Create instance with `{ client, timeout?, onError?, enableTracing?, behavior? }` |
+| `registerMenu(name, factory)`                                                    | Register a menu factory function                                                 |
 | `handleInteraction(interaction, menuName, commandOptions?, interactionOptions?)` | Start a new session from a slash command                                         |
-| `routeComponentInteraction(interaction)`             | Route a button/select interaction to an active session                |
-| `isFlowCordInteraction(customId)`                    | Check if a `customId` belongs to a FlowCord session                   |
-| `getSession(sessionId)`                              | Get an active session by ID                                           |
-| `activeSessionCount`                                 | Number of currently active sessions                                   |
+| `routeComponentInteraction(interaction)`                                         | Route a button/select interaction to an active session                           |
+| `isFlowCordInteraction(customId)`                                                | Check if a `customId` belongs to a FlowCord session                              |
+| `getSession(sessionId)`                                                          | Get an active session by ID                                                      |
+| `activeSessionCount`                                                             | Number of currently active sessions                                              |
 
 ### `MenuBuilder<TState, TSessionState, TCtx, TMode>`
 
-| Method                           | Mode   | Description                                                    |
-| -------------------------------- | ------ | -------------------------------------------------------------- |
-| `.setup(fn)`                     | Any    | One-time initialization                                        |
-| `.setEmbeds(fn)`                 | Embeds | Embed rendering callback                                       |
-| `.setButtons(fn, options?)`      | Embeds | Button array callback (optional pagination)                    |
-| `.setSelectMenu(fn)`             | Embeds | Select menu callback                                           |
-| `.setLayout(fn)`                 | Layout | Components v2 layout callback                                  |
-| `.setModal(fn)`                  | Any    | Modal config callback (single or array)                        |
-| `.setMessageHandler(fn)`         | Any    | Handle text message replies                                    |
-| `.setCancellable()`              | Any    | Add Cancel button                                              |
-| `.setReturnable()`               | Any    | Add Back button                                                |
-| `.setTrackedInHistory()`         | Any    | Push to nav stack when leaving                                 |
-| `.setPreserveStateOnReturn()`    | Any    | Restore previous menu state snapshot when returning via goBack |
-| `.setFallbackMenu(id, options?)` | Any    | Fallback for goBack on empty stack                             |
-| `.setEphemeral(ephemeral?)`      | Any    | Mark menu as ephemeral (visible only to invoking user)         |
-| `.setUpdateMode(mode)`           | Any    | `'editInPlace'` (default) or `'postNew'` (repost after every interaction) |
-| `.setOldMessageDisposal(mode, options?)` | Any | How to handle the old message when replaced; `options` is discriminated by `mode` |
-| `_setDefaultBehavior(config)` *(protected)* | Any    | Subclass hook: class-level defaults, lowest priority in hierarchy        |
-| `_setOverrideBehavior(config)` *(protected)* | Any   | Subclass hook: class-level overrides, wins over explicit but yields to session/global |
-| `.setListPagination(options)`    | Any    | Configure list pagination                                      |
-| `.onEnter(fn)`                   | Any    | Hook: menu entered                                             |
-| `.onLeave(fn)`                   | Any    | Hook: menu leaving                                             |
-| `.onCancel(fn)`                  | Any    | Hook: session cancelled                                        |
-| `.beforeRender(fn)`              | Any    | Hook: before render cycle                                      |
-| `.afterRender(fn)`               | Any    | Hook: after render cycle                                       |
-| `.onNext(fn)`                    | Any    | Hook: page advanced                                            |
-| `.onPrevious(fn)`                | Any    | Hook: page reversed                                            |
-| `.onAction(fn)`                  | Any    | Hook: custom action executed                                   |
-| `.extendContext(fn)`             | Any    | Add custom properties to context                               |
-| `.fromDefinition(def)`           | Any    | Configure from object literal                                  |
-| `.build()`                       | —      | Produce the final `MenuDefinition`                             |
+| Method                                       | Mode   | Description                                                                           |
+| -------------------------------------------- | ------ | ------------------------------------------------------------------------------------- |
+| `.setup(fn)`                                 | Any    | One-time initialization                                                               |
+| `.setEmbeds(fn)`                             | Embeds | Embed rendering callback                                                              |
+| `.setButtons(fn, options?)`                  | Embeds | Button array callback (optional pagination)                                           |
+| `.setSelectMenu(fn)`                         | Embeds | Select menu callback                                                                  |
+| `.setLayout(fn)`                             | Layout | Components v2 layout callback                                                         |
+| `.setModal(fn)`                              | Any    | Modal config callback (single or array)                                               |
+| `.setMessageHandler(fn)`                     | Any    | Handle text message replies                                                           |
+| `.setCancellable()`                          | Any    | Add Cancel button                                                                     |
+| `.setReturnable()`                           | Any    | Add Back button                                                                       |
+| `.setTrackedInHistory()`                     | Any    | Push to nav stack when leaving                                                        |
+| `.setPreserveStateOnReturn()`                | Any    | Restore previous menu state snapshot when returning via goBack                        |
+| `.setFallbackMenu(id, options?)`             | Any    | Fallback for goBack on empty stack                                                    |
+| `.setEphemeral(ephemeral?)`                  | Any    | Mark menu as ephemeral (visible only to invoking user)                                |
+| `.setUpdateMode(mode)`                       | Any    | `'editInPlace'` (default) or `'postNew'` (repost after every interaction)             |
+| `.setOldMessageDisposal(mode, options?)`     | Any    | How to handle the old message when replaced; `options` is discriminated by `mode`     |
+| `_setDefaultBehavior(config)` _(protected)_  | Any    | Subclass hook: class-level defaults, lowest priority in hierarchy                     |
+| `_setOverrideBehavior(config)` _(protected)_ | Any    | Subclass hook: class-level overrides, wins over explicit but yields to session/global |
+| `.setListPagination(options)`                | Any    | Configure list pagination                                                             |
+| `.onEnter(fn)`                               | Any    | Hook: menu entered                                                                    |
+| `.onLeave(fn)`                               | Any    | Hook: menu leaving                                                                    |
+| `.onCancel(fn)`                              | Any    | Hook: session cancelled                                                               |
+| `.beforeRender(fn)`                          | Any    | Hook: before render cycle                                                             |
+| `.afterRender(fn)`                           | Any    | Hook: after render cycle                                                              |
+| `.onNext(fn)`                                | Any    | Hook: page advanced                                                                   |
+| `.onPrevious(fn)`                            | Any    | Hook: page reversed                                                                   |
+| `.onAction(fn)`                              | Any    | Hook: custom action executed                                                          |
+| `.extendContext(fn)`                         | Any    | Add custom properties to context                                                      |
+| `.fromDefinition(def)`                       | Any    | Configure from object literal                                                         |
+| `.build()`                                   | —      | Produce the final `MenuDefinition`                                                    |
 
 ### Built-in Actions
 
@@ -864,14 +879,14 @@ On startup the bot registers all slash commands (guild-scoped if `DEV_GUILD_ID` 
 
 **Available commands**
 
-| Command | Example |
-| --- | --- |
-| `/weather` | 01 — Quick Start |
+| Command     | Example                    |
+| ----------- | -------------------------- |
+| `/weather`  | 01 — Quick Start           |
 | `/cookbook` | 02 — Multi-Menu Navigation |
-| `/workout` | 03 — State & Lifecycle |
-| `/party` | 04 — Sub-Menu Continuation |
-| `/event` | 05 — Select Menus & Modals |
-| `/shop` | 06 — Pagination & Guards |
+| `/workout`  | 03 — State & Lifecycle     |
+| `/party`    | 04 — Sub-Menu Continuation |
+| `/event`    | 05 — Select Menus & Modals |
+| `/shop`     | 06 — Pagination & Guards   |
 
 **Working on the framework itself**
 
