@@ -311,24 +311,24 @@ globalOverride → sessionOverride → classOverride (_setOverrideBehavior)
 
 ### Resolved behaviors
 
-| Field | Type | Default | Description |
-|---|---|---|---|
-| `ephemeral` | `boolean` | `false` | Whether the menu is visible only to the invoking user |
-| `updateMode` | `'editInPlace' \| 'postNew'` | `'editInPlace'` | Whether menus edit in-place or always delete+repost to stay at the bottom of chat |
-| `oldMessageDisposal` | `'stripComponents' \| 'delete' \| 'replaceWithClosed'` | `'stripComponents'` | How the old message is handled when it must be replaced (ephemeral transitions, mode changes, `postNew`, message collection) |
-| `ephemeralFallbackDisposal` | `'stripComponents' \| 'replaceWithClosed'` | `'stripComponents'` | Fallback disposal for `'delete'` mode when the active message is ephemeral (Discord cannot delete ephemeral messages) |
-| `closedMessage` | `string` | `'*Menu closed*'` | Content shown when disposal mode is `'replaceWithClosed'` |
-| `deleteUserMessages` | `boolean` | `false` | Whether to attempt deleting the user's typed message after `setMessageHandler` collects it |
+| Field                       | Type                                                   | Default             | Description                                                                                                                  |
+| --------------------------- | ------------------------------------------------------ | ------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `ephemeral`                 | `boolean`                                              | `false`             | Whether the menu is visible only to the invoking user                                                                        |
+| `updateMode`                | `'editInPlace' \| 'postNew'`                           | `'editInPlace'`     | Whether menus edit in-place or always delete+repost to stay at the bottom of chat                                            |
+| `oldMessageDisposal`        | `'stripComponents' \| 'delete' \| 'replaceWithClosed'` | `'stripComponents'` | How the old message is handled when it must be replaced (ephemeral transitions, mode changes, `postNew`, message collection) |
+| `ephemeralFallbackDisposal` | `'stripComponents' \| 'replaceWithClosed'`             | `'stripComponents'` | Fallback disposal for `'delete'` mode when the active message is ephemeral (Discord cannot delete ephemeral messages)        |
+| `closedMessage`             | `string`                                               | `'*Menu closed*'`   | Content shown when disposal mode is `'replaceWithClosed'`                                                                    |
+| `deleteUserMessages`        | `boolean`                                              | `false`             | Whether to attempt deleting the user's typed message after `setMessageHandler` collects it                                   |
 
 ### Where each level lives
 
-| Level | Set via | Scope |
-|---|---|---|
-| `globalOverride` / `globalDefault` | `FlowCordConfig.behavior` | All sessions in this engine |
-| `sessionOverride` / `sessionDefault` | `HandleInteractionOptions.behavior` | All menus in this invocation |
-| `classOverride` | `MenuBuilder._setOverrideBehavior()` *(protected)* | All menus of this builder subclass; beats explicit declarations |
-| `explicit` | `MenuBuilder.setEphemeral()` / `setUpdateMode()` / `setOldMessageDisposal()` / `entryEphemeral` | This menu (or entry menu) |
-| `classDefault` | `MenuBuilder._setDefaultBehavior()` *(protected)* | All menus of this builder subclass; beats session/global defaults |
+| Level                                | Set via                                                                                         | Scope                                                             |
+| ------------------------------------ | ----------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| `globalOverride` / `globalDefault`   | `FlowCordConfig.behavior`                                                                       | All sessions in this engine                                       |
+| `sessionOverride` / `sessionDefault` | `HandleInteractionOptions.behavior`                                                             | All menus in this invocation                                      |
+| `classOverride`                      | `MenuBuilder._setOverrideBehavior()` _(protected)_                                              | All menus of this builder subclass; beats explicit declarations   |
+| `explicit`                           | `MenuBuilder.setEphemeral()` / `setUpdateMode()` / `setOldMessageDisposal()` / `entryEphemeral` | This menu (or entry menu)                                         |
+| `classDefault`                       | `MenuBuilder._setDefaultBehavior()` _(protected)_                                               | All menus of this builder subclass; beats session/global defaults |
 
 `override` beats same-level `explicit`/`default`. Global `override` beats session `override`.
 
@@ -691,11 +691,11 @@ Render reads from cache/DB ──► user picks up where they left off
 
 These serve different purposes and should not be conflated:
 
-| | `sessionState` | External cache (e.g. node-cache) |
-|---|---|---|
-| **Scope** | Single session | Shared across all sessions |
-| **Lifetime** | Dies with the session | Independent of any session |
-| **Invalidation** | Not possible externally | Explicit, on your terms |
+|                   | `sessionState`                              | External cache (e.g. node-cache) |
+| ----------------- | ------------------------------------------- | -------------------------------- |
+| **Scope**         | Single session                              | Shared across all sessions       |
+| **Lifetime**      | Dies with the session                       | Independent of any session       |
+| **Invalidation**  | Not possible externally                     | Explicit, on your terms          |
 | **Best used for** | Passing context between menus within a flow | DB query results, shared lookups |
 
 Use `sessionState` for ephemeral inter-menu context — data that only makes sense within the current flow (e.g. a selection in one menu that a later menu needs to act on). For DB-backed data, querying directly in render callbacks or action handlers is perfectly valid and the simplest starting point. An external cache (e.g. node-cache) is an optional optimization on top of that — worth adding when the same data is read frequently across multiple sessions, when you need explicit invalidation as records change, or when response latency matters (discord.js recommends this approach for autocomplete handlers for the same reason).

@@ -3,7 +3,10 @@ import type {
   MessageComponentInteraction,
 } from 'discord.js';
 import { MenuEngine } from './engine/MenuEngine';
-import type { MenuEngineConfig, HandleInteractionOptions } from './engine/MenuEngine';
+import type {
+  MenuEngineConfig,
+  HandleInteractionOptions,
+} from './engine/MenuEngine';
 export type { HandleInteractionOptions };
 import type { CreateMenuDefinitionFn } from './registry/MenuRegistry';
 import type { MenuSession } from './engine/MenuSession';
@@ -56,20 +59,22 @@ export class FlowCord {
     interaction: ChatInputCommandInteraction,
     menuName: string,
     commandOptions?: Record<string, unknown>,
-    interactionOptions?: HandleInteractionOptions
+    interactionOptions?: HandleInteractionOptions,
   ): Promise<void> {
     return this._engine.handleInteraction(
       interaction,
       menuName,
       commandOptions,
-      interactionOptions
+      interactionOptions,
     );
   }
 
   /**
    * Route an incoming component interaction to the correct active session.
    */
-  routeComponentInteraction(interaction: MessageComponentInteraction): boolean {
+  routeComponentInteraction(
+    interaction: MessageComponentInteraction,
+  ): boolean {
     return this._engine.routeComponentInteraction(interaction);
   }
 

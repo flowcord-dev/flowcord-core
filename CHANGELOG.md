@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.1.0-alpha.0] - 2026-03-24
 
 ### Added
+
 - Core `FlowCord` facade and `MenuEngine` for session management
 - `MenuBuilder` fluent API with full TypeScript generics for typed state
 - Dual render modes: embeds mode (traditional Discord embeds + buttons) and layout mode (Components v2)

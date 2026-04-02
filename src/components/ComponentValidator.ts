@@ -77,7 +77,8 @@ function countComponent(config: ComponentConfig): CountResult {
         breakdown.buttons += childResult.breakdown.buttons;
         breakdown.selects += childResult.breakdown.selects;
         breakdown.thumbnails += childResult.breakdown.thumbnails;
-        breakdown.mediaGalleries += childResult.breakdown.mediaGalleries;
+        breakdown.mediaGalleries +=
+          childResult.breakdown.mediaGalleries;
         breakdown.files += childResult.breakdown.files;
         breakdown.other += childResult.breakdown.other;
       }
@@ -107,7 +108,8 @@ function countComponent(config: ComponentConfig): CountResult {
         breakdown.buttons += accResult.breakdown.buttons;
         breakdown.selects += accResult.breakdown.selects;
         breakdown.thumbnails += accResult.breakdown.thumbnails;
-        breakdown.mediaGalleries += accResult.breakdown.mediaGalleries;
+        breakdown.mediaGalleries +=
+          accResult.breakdown.mediaGalleries;
         breakdown.files += accResult.breakdown.files;
         breakdown.other += accResult.breakdown.other;
       }
@@ -131,7 +133,8 @@ function countComponent(config: ComponentConfig): CountResult {
         breakdown.buttons += childResult.breakdown.buttons;
         breakdown.selects += childResult.breakdown.selects;
         breakdown.thumbnails += childResult.breakdown.thumbnails;
-        breakdown.mediaGalleries += childResult.breakdown.mediaGalleries;
+        breakdown.mediaGalleries +=
+          childResult.breakdown.mediaGalleries;
         breakdown.files += childResult.breakdown.files;
         breakdown.other += childResult.breakdown.other;
       }
@@ -162,7 +165,8 @@ function countComponent(config: ComponentConfig): CountResult {
       // Count the current page's worth of buttons (worst case: perPage or all)
       // At validation time, we count all buttons as the max possible
       breakdown.other++;
-      const maxPerPage = config.options?.perPage ?? config.buttons.length;
+      const maxPerPage =
+        config.options?.perPage ?? config.buttons.length;
       const pageButtons = Math.min(maxPerPage, config.buttons.length);
       // Each button is a component + action rows to hold them (5 per row)
       const rowsNeeded = Math.ceil(pageButtons / 5);
@@ -190,7 +194,7 @@ function countComponent(config: ComponentConfig): CountResult {
 function countComponents(
   configs: ComponentConfig[],
   initialBreakdown?: ComponentBreakdown,
-  initialCount?: number
+  initialCount?: number,
 ): CountResult {
   const breakdown = initialBreakdown ?? emptyBreakdown();
   let componentCount = initialCount ?? 0;
@@ -219,15 +223,20 @@ function countComponents(
 
 function formatBreakdown(breakdown: ComponentBreakdown): string {
   const parts: string[] = [];
-  if (breakdown.containers) parts.push(`${breakdown.containers} containers`);
+  if (breakdown.containers)
+    parts.push(`${breakdown.containers} containers`);
   if (breakdown.textDisplays)
     parts.push(`${breakdown.textDisplays} text displays`);
-  if (breakdown.sections) parts.push(`${breakdown.sections} sections`);
-  if (breakdown.separators) parts.push(`${breakdown.separators} separators`);
-  if (breakdown.actionRows) parts.push(`${breakdown.actionRows} action rows`);
+  if (breakdown.sections)
+    parts.push(`${breakdown.sections} sections`);
+  if (breakdown.separators)
+    parts.push(`${breakdown.separators} separators`);
+  if (breakdown.actionRows)
+    parts.push(`${breakdown.actionRows} action rows`);
   if (breakdown.buttons) parts.push(`${breakdown.buttons} buttons`);
   if (breakdown.selects) parts.push(`${breakdown.selects} selects`);
-  if (breakdown.thumbnails) parts.push(`${breakdown.thumbnails} thumbnails`);
+  if (breakdown.thumbnails)
+    parts.push(`${breakdown.thumbnails} thumbnails`);
   if (breakdown.mediaGalleries)
     parts.push(`${breakdown.mediaGalleries} media galleries`);
   if (breakdown.files) parts.push(`${breakdown.files} files`);
@@ -245,7 +254,7 @@ function formatBreakdown(breakdown: ComponentBreakdown): string {
 export function validateLayout(
   components: ComponentConfig[],
   menuId: string,
-  reservedButtonCount = 0
+  reservedButtonCount = 0,
 ): ValidationResult {
   const { componentCount, textCharCount, breakdown } =
     countComponents(components);
@@ -266,7 +275,7 @@ export function validateLayout(
     errors.push(
       `Layout for menu "${menuId}" has ${totalComponents} components (limit: ${MAX_COMPONENTS}). ` +
         `Reduce content or split into multiple menus.\n` +
-        `Breakdown: ${formatBreakdown(breakdown)}.`
+        `Breakdown: ${formatBreakdown(breakdown)}.`,
     );
   }
 
@@ -274,7 +283,7 @@ export function validateLayout(
     errors.push(
       `Layout for menu "${menuId}" has ${textCharCount.toLocaleString()} characters ` +
         `across text display components (limit: ${MAX_TEXT_CHARS.toLocaleString()}). ` +
-        `Reduce text content or paginate.`
+        `Reduce text content or paginate.`,
     );
   }
 
@@ -293,7 +302,7 @@ export function validateLayout(
  */
 export function validateEmbeds(
   actionRowCount: number,
-  menuId: string
+  menuId: string,
 ): ValidationResult {
   const errors: string[] = [];
   const breakdown = emptyBreakdown();
@@ -302,7 +311,7 @@ export function validateEmbeds(
   if (actionRowCount > 5) {
     errors.push(
       `Embed menu "${menuId}" has ${actionRowCount} action rows (limit: 5). ` +
-        `Reduce buttons or use pagination.`
+        `Reduce buttons or use pagination.`,
     );
   }
 

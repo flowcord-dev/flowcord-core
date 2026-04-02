@@ -7,7 +7,7 @@
  * the builder's generic parameter.
  */
 export class StateAccessor<
-  TState extends Record<string, unknown> = Record<string, unknown>
+  TState extends Record<string, unknown> = Record<string, unknown>,
 > {
   private _data: TState;
 

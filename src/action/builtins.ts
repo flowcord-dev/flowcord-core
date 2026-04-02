@@ -13,7 +13,7 @@ import type { Action, MenuContextLike } from '../types/common';
  */
 export function goTo(
   menuId: string,
-  options?: Record<string, unknown>
+  options?: Record<string, unknown>,
 ): Action {
   return async (ctx: MenuContextLike) => {
     await ctx.goTo(menuId, options);
@@ -52,7 +52,9 @@ export function openModal(modalId?: string): Action {
   return async (ctx: MenuContextLike) => {
     // The engine handles modal display via the menu instance
     // This is a signal to the session's action handler
-    const menu = ctx.menu as { openModal?: (id?: string) => Promise<void> };
+    const menu = ctx.menu as {
+      openModal?: (id?: string) => Promise<void>;
+    };
     if (menu.openModal) {
       await menu.openModal(modalId);
     }

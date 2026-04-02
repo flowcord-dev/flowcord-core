@@ -596,22 +596,37 @@ export class MenuRenderer {
       this._activeMessageIsFollowUp = true;
       this._lastUpdateSource = 'followUp';
     } else if (this._isReset) {
-      // After message collection — dispose old message and post new as followUp.
-      const pendingDisposalConfig = this._pendingDisposalConfig;
       this._isReset = false;
-      await this.disposeOldMessage(
-        pendingDisposalConfig,
-        commandInteraction,
-      );
-      const followUpPayload = ephemeral
-        ? this.makeEphemeral(discordPayload)
-        : discordPayload;
-      const newMessage =
-        await commandInteraction.followUp(followUpPayload);
-      this._activeMessage = newMessage as Message;
-      this._activeMessageEphemeral = ephemeral;
-      this._activeMessageIsFollowUp = true;
-      this._lastUpdateSource = 'followUp';
+      if (behavior.updateMode === 'postNew') {
+        // postNew: dispose the old message and post the updated menu as a followUp.
+        await this.disposeOldMessage(
+          this._pendingDisposalConfig,
+          commandInteraction,
+        );
+        const followUpPayload = ephemeral
+          ? this.makeEphemeral(discordPayload)
+          : discordPayload;
+        const newMessage =
+          await commandInteraction.followUp(followUpPayload);
+        this._activeMessage = newMessage as Message;
+        this._activeMessageEphemeral = ephemeral;
+        this._activeMessageIsFollowUp = true;
+        this._lastUpdateSource = 'followUp';
+      } else {
+        // editInPlace (default): edit the existing bot message with the updated
+        // state. No disposal, no repost — the menu stays where it is. This is
+        // the right default: after collecting a message the UI is least disruptive
+        // when only the content changes, not the message position.
+        if (this._activeMessageEphemeral) {
+          await this.editEphemeralMessage(
+            commandInteraction,
+            discordPayload,
+          );
+        } else if (this._activeMessage) {
+          await this._activeMessage.edit(discordPayload);
+        }
+        this._lastUpdateSource = 'editReply';
+      }
     } else if (
       behavior.updateMode === 'postNew' &&
       this._activeMessage !== null

@@ -9,5 +9,7 @@ if (fs.existsSync(target)) {
   console.log('.env already exists — skipping.');
 } else {
   fs.copyFileSync(example, target);
-  console.log('Created .env from .env.example. Fill in your credentials before running npm run flow.');
+  console.log(
+    'Created .env from .env.example. Fill in your credentials before running npm run flow.',
+  );
 }

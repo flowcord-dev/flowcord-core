@@ -10,7 +10,11 @@
  *   async (ctx) => { ... mutation logic ... },
  * )
  */
-import type { Action, MenuContextLike, Awaitable } from '../types/common';
+import type {
+  Action,
+  MenuContextLike,
+  Awaitable,
+} from '../types/common';
 
 /**
  * A guard is a predicate. If it returns false (or the string is truthy),
@@ -20,7 +24,7 @@ import type { Action, MenuContextLike, Awaitable } from '../types/common';
  * can access typed state/sessionState.
  */
 export type GuardFn<TCtx = MenuContextLike> = (
-  ctx: TCtx
+  ctx: TCtx,
 ) => Awaitable<boolean | string>;
 
 /**
@@ -40,12 +44,13 @@ export type GuardFn<TCtx = MenuContextLike> = (
  */
 export function guard<TCtx = MenuContextLike>(
   predicate: GuardFn<TCtx>,
-  failureMessage: string
+  failureMessage: string,
 ): Action<TCtx> {
   return async (ctx: TCtx) => {
     const result = await predicate(ctx);
     if (result === false || (typeof result === 'string' && result)) {
-      const message = typeof result === 'string' ? result : failureMessage;
+      const message =
+        typeof result === 'string' ? result : failureMessage;
       throw new GuardFailedError(message);
     }
   };

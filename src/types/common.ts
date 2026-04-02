@@ -207,7 +207,9 @@ export interface ReservedButtonsPlaceholderConfig {
  * Generic over TCtx so that builder subclasses (e.g. AdminMenuBuilder)
  * can provide a richer context type to inline callbacks.
  */
-export type Action<TCtx = MenuContextLike> = (ctx: TCtx) => Awaitable<void>;
+export type Action<TCtx = MenuContextLike> = (
+  ctx: TCtx,
+) => Awaitable<void>;
 
 /**
  * A select menu action receives the context and the selected values.
@@ -215,7 +217,7 @@ export type Action<TCtx = MenuContextLike> = (ctx: TCtx) => Awaitable<void>;
  */
 export type SelectAction<TCtx = MenuContextLike> = (
   ctx: TCtx,
-  values: string[]
+  values: string[],
 ) => Awaitable<void>;
 
 /**
@@ -230,13 +232,16 @@ export interface MenuContextLike {
   sessionState: unknown;
   client: Client<true>;
   interaction: Interaction;
-  goTo(menuId: string, options?: Record<string, unknown>): Promise<void>;
+  goTo(
+    menuId: string,
+    options?: Record<string, unknown>,
+  ): Promise<void>;
   goBack(result?: unknown): Promise<void>;
   close(): Promise<void>;
   hardRefresh(): Promise<void>;
   openSubMenu(
     menuId: string,
-    opts: { onComplete: Action; [key: string]: unknown }
+    opts: { onComplete: Action; [key: string]: unknown },
   ): Promise<void>;
   complete(result?: unknown): Promise<void>;
 }
@@ -266,7 +271,9 @@ export interface PaginationOptions {
   };
 }
 
-export interface ListPaginationOptions<TCtx = MenuContextLike> extends PaginationOptions {
+export interface ListPaginationOptions<
+  TCtx = MenuContextLike,
+> extends PaginationOptions {
   getTotalQuantityItems: (ctx: TCtx) => Awaitable<number>;
   itemsPerPage?: number;
 }
