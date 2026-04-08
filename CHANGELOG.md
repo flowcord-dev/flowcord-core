@@ -54,6 +54,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Navigation tracing via `NavigationTracer`
 - Six example files covering quickstart through advanced patterns
 
-[Unreleased]: https://github.com/flowcord-dev/flowcord-js/compare/v0.1.0-alpha.1...HEAD
-[0.1.0-alpha.1]: https://github.com/flowcord-dev/flowcord-js/compare/v0.1.0-alpha.0...v0.1.0-alpha.1
-[0.1.0-alpha.0]: https://github.com/flowcord-dev/flowcord-js/releases/tag/v0.1.0-alpha.0
+[Unreleased]: https://github.com/flowcord-dev/flowcord-core/compare/v0.1.0-alpha.1...HEAD
+[0.1.0-alpha.1]: https://github.com/flowcord-dev/flowcord-core/compare/v0.1.0-alpha.0...v0.1.0-alpha.1
+[0.1.0-alpha.0]: https://github.com/flowcord-dev/flowcord-core/releases/tag/v0.1.0-alpha.0
