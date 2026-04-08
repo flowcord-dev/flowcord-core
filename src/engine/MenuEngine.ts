@@ -10,6 +10,7 @@ import {
   type MessageComponentInteraction,
 } from 'discord.js';
 import type { FlowCordClient } from '../FlowCordClient';
+import type { BehaviorPolicy } from '../types/behavior';
 import type { CreateMenuDefinitionFn } from '../registry/MenuRegistry';
 import { MenuRegistry } from '../registry/MenuRegistry';
 import { ActionRegistry } from '../registry/ActionRegistry';
@@ -27,6 +28,11 @@ export interface MenuEngineConfig {
   timeout?: number;
   /** Enable navigation tracing (default: false) */
   enableTracing?: boolean;
+  /**
+   * Global behavior policy. Defaults apply when no menu or session declares a
+   * value. Overrides apply regardless of what menus or sessions declare.
+   */
+  behavior?: BehaviorPolicy;
 }
 
 const getErrorMessage = (error: unknown): string => {
@@ -39,7 +45,7 @@ const getErrorMessage = (error: unknown): string => {
 
 const buildDefaultErrorEmbed = (
   interaction: ChatInputCommandInteraction,
-  error: unknown
+  error: unknown,
 ): EmbedBuilder => {
   const errorMessage = getErrorMessage(error);
 
@@ -56,7 +62,7 @@ const buildDefaultErrorEmbed = (
 
 const defaultOnError = async (
   interaction: ChatInputCommandInteraction,
-  error: unknown
+  error: unknown,
 ): Promise<void> => {
   const errorEmbed = buildDefaultErrorEmbed(interaction, error);
 
@@ -75,9 +81,31 @@ const defaultOnError = async (
       ephemeral: true,
     });
   } catch (discordError) {
-    console.error('[FlowCord] Failed to send error response:', discordError);
+    console.error(
+      '[FlowCord] Failed to send error response:',
+      discordError,
+    );
   }
 };
+
+/**
+ * Options passed to handleInteraction for a specific invocation.
+ */
+export interface HandleInteractionOptions {
+  /**
+   * Ephemeral flag for the entry menu's initial deferReply.
+   * Required for async factory functions — the framework must defer before
+   * awaiting the factory, so it cannot read setEphemeral() in time.
+   * For sync factories, setEphemeral() on the builder is sufficient.
+   */
+  entryEphemeral?: boolean;
+  /**
+   * Session-level behavior policy. Defaults apply when the menu does not
+   * declare a value. Overrides apply regardless of what the menu declares,
+   * but still yield to global overrides.
+   */
+  behavior?: BehaviorPolicy;
+}
 
 export class MenuEngine {
   readonly menuRegistry: MenuRegistry;
@@ -110,6 +138,10 @@ export class MenuEngine {
     return this._config.timeout ?? 120_000;
   }
 
+  get globalBehavior(): BehaviorPolicy | undefined {
+    return this._config.behavior;
+  }
+
   /** Number of currently active sessions. */
   get activeSessionCount(): number {
     return this._sessions.size;
@@ -131,14 +163,23 @@ export class MenuEngine {
   async handleInteraction(
     interaction: ChatInputCommandInteraction,
     menuName: string,
-    options?: Record<string, unknown>
+    commandOptions?: Record<string, unknown>,
+    interactionOptions?: HandleInteractionOptions,
   ): Promise<void> {
     const session = this.createSession(interaction);
 
     try {
-      await session.initialize(menuName, options);
+      await session.initialize(
+        menuName,
+        commandOptions,
+        interactionOptions,
+      );
     } catch (error) {
       this.removeSession(session.id);
+      console.error(
+        `[FlowCord] Error in session ${session.id}`,
+        error,
+      );
       if (this._config.onError) {
         await this._config.onError(session, error);
       } else {
@@ -150,7 +191,9 @@ export class MenuEngine {
   /**
    * Create a new MenuSession and register it for interaction routing.
    */
-  createSession(interaction: ChatInputCommandInteraction): MenuSession {
+  createSession(
+    interaction: ChatInputCommandInteraction,
+  ): MenuSession {
     const session = new MenuSession(this, interaction);
     this._sessions.set(session.id, session);
     return session;
@@ -172,7 +215,9 @@ export class MenuEngine {
    *
    * @returns true if the interaction was routed to a session, false otherwise
    */
-  routeComponentInteraction(interaction: MessageComponentInteraction): boolean {
+  routeComponentInteraction(
+    interaction: MessageComponentInteraction,
+  ): boolean {
     const parsed = ComponentIdManager.parse(interaction.customId);
     if (!parsed) return false;
 

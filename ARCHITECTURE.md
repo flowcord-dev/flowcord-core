@@ -12,12 +12,14 @@ This document explains how FlowCord works under the hood. It covers the session 
 - [Component ID Management](#component-id-management)
 - [Rendering Pipeline](#rendering-pipeline)
 - [Navigation System](#navigation-system)
+- [Behavior Policy Resolution](#behavior-policy-resolution)
 - [State Architecture](#state-architecture)
 - [Modal Handling](#modal-handling)
 - [Lifecycle Hook Execution](#lifecycle-hook-execution)
 - [Sub-Menu & Continuation System](#sub-menu--continuation-system)
 - [Pagination System](#pagination-system)
 - [Error Handling](#error-handling)
+- [Session Persistence & Scope](#session-persistence--scope)
 
 ---
 
@@ -100,6 +102,24 @@ User runs /command
 │ Session ends         │──── Engine removes session from map
 └──────────────────────┘
 ```
+
+### Async vs Sync Factory: deferReply Timing
+
+Discord requires `deferReply()` to be called within 3 seconds of receiving an interaction. The placement of `deferReply()` depends on whether the menu factory is async:
+
+**Sync factory** — The factory runs first (synchronously, so no timeout risk), then `deferReply()` is called with the fully resolved ephemeral flag:
+
+```
+run factory → read definition.behavior → resolveBehavior() → deferReply(ephemeral)
+```
+
+**Async factory** — The factory must be awaited, which would risk hitting the 3-second window. FlowCord defers first, resolving ephemeral from `entryEphemeral` + the session/global policy, then awaits the factory:
+
+```
+resolveBehavior(entryEphemeral, sessionPolicy, globalPolicy) → deferReply(ephemeral) → await factory
+```
+
+FlowCord detects async factories at runtime via `fn.constructor.name === 'AsyncFunction'`. The renderer is seeded with the actual `deferReply` ephemeral value so that subsequent navigation correctly tracks whether the active message is ephemeral.
 
 ### Session States
 
@@ -276,6 +296,79 @@ When popping a menu from the stack, FlowCord creates a new `MenuInstance` from t
 
 - **Default behavior**: state is recreated (`setup()` runs), so the menu reflects current data.
 - **Opt-in restore**: menus configured with `.setPreserveStateOnReturn()` snapshot menu state and pagination before navigation, then restore those snapshots when returning via `goBack()`.
+
+---
+
+## Behavior Policy Resolution
+
+FlowCord resolves per-render behaviors by walking a priority hierarchy from highest to lowest:
+
+```
+globalOverride → sessionOverride → classOverride (_setOverrideBehavior)
+  → interactionExplicit (behavior on button/select/modal/message handler)
+  → explicit (setEphemeral / setMessageCleanup / entryEphemeral)
+    → interactionTypeDefault → classDefault (_setDefaultBehavior) → sessionDefault → globalDefault → framework default
+```
+
+### Resolved behaviors
+
+| Field                       | Type                                                              | Default           | Description                                                                                                                        |
+| --------------------------- | ----------------------------------------------------------------- | ----------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `ephemeral`                 | `boolean`                                                         | `false`           | Whether the menu is visible only to the invoking user                                                                              |
+| `messageCleanup`            | `'edit' \| 'postAndDelete' \| 'postAndStrip' \| 'postAndReplace'` | `'edit'`          | How this menu's message is handled on the next render cycle                                                                        |
+| `ephemeralFallbackDisposal` | `'strip' \| 'replace'`                                            | `'strip'`         | Fallback when `messageCleanup` is `'postAndDelete'` but the active message is ephemeral (Discord cannot delete ephemeral messages) |
+| `closedMessage`             | `string`                                                          | `'*Menu closed*'` | Content shown when `messageCleanup` is `'postAndReplace'` or `ephemeralFallbackDisposal` is `'replace'`                            |
+| `deleteUserMessages`        | `boolean`                                                         | `false`           | Whether to attempt deleting the user's typed message after `setMessageHandler` collects it                                         |
+
+### Where each level lives
+
+| Level                                | Set via                                                                          | Scope                                                             |
+| ------------------------------------ | -------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| `globalOverride` / `globalDefault`   | `FlowCordConfig.behavior`                                                        | All sessions in this engine                                       |
+| `sessionOverride` / `sessionDefault` | `HandleInteractionOptions.behavior`                                              | All menus in this invocation                                      |
+| `classOverride`                      | `MenuBuilder._setOverrideBehavior()` _(protected)_                               | All menus of this builder subclass; beats explicit declarations   |
+| `interactionExplicit`                | `behavior` field on button, select, modal, or message handler config             | Single render cycle triggered by that interaction                 |
+| `explicit`                           | `MenuBuilder.setEphemeral()` / `setMessageCleanup()` / `entryEphemeral`          | This menu (or entry menu)                                         |
+| `interactionTypeDefault`             | Framework defaults per interaction type (e.g. message handlers → `postAndStrip`) | Single render cycle                                               |
+| `classDefault`                       | `MenuBuilder._setDefaultBehavior()` _(protected)_                                | All menus of this builder subclass; beats session/global defaults |
+
+`override` beats same-level `explicit`/`default`. Global `override` beats session `override`.
+
+### Per-interaction behavior
+
+Buttons, selects, modals, and message handlers each accept an optional `behavior: InteractionBehavior` field. This override applies for the single render cycle triggered by that interaction. On the next interaction, behavior reverts to menu/session/global config unless that interaction also declares an override.
+
+Setting `ephemeral` via interaction behavior causes one render cycle to post as ephemeral (or revert to public), useful for transiently revealing private information on an otherwise public menu. It does NOT persistently change the menu's ephemeral state. Additionally, interaction-level ephemeral behaviors will not be applied if the current menu is navigated away from.
+
+### Implementation
+
+`resolveBehavior(builderBehavior, sessionPolicy, globalPolicy, interactionBehavior?, interactionTypeDefaults?)` in `src/types/behavior.ts` returns a `ResolvedBehavior` with all fields as concrete values. The internal `resolveField<T>` helper is generic — it walks the same priority chain for both boolean and string-union fields, with a per-field fallback as the final default.
+
+`resolveBehavior` is called in two places:
+
+- **`MenuSession.initialize()`** — before `deferReply()` to determine the entry ephemeral flag
+- **`MenuSession.processMenus()`** — once per loop iteration, consuming any pending interaction behavior; the result is passed to `renderCurrentMenu()` (for the render) and to the interaction-collection methods (for disposal settings on message collection)
+
+### Ephemeral message editing
+
+Ephemeral messages cannot be edited via `Message.edit()` (channel REST API). The renderer tracks:
+
+- `_activeMessageEphemeral` — whether the current message is ephemeral
+- `_activeMessageIsFollowUp` — whether it was created via `followUp()` or `editReply()` (`@original`)
+
+Edits to ephemeral messages are routed through `interaction.editReply()` for `@original` messages, or `client.rest.patch(Routes.webhookMessage(appId, token, messageId))` for followUp messages.
+
+### Old message disposal
+
+Whenever a new message must be posted (ephemeral-state change, `messageCleanup` not `'edit'`, or after `setMessageHandler` collection), the renderer calls `disposeOldMessage()` before sending the new one. The disposal strategy is determined by the `messageCleanup` mode from the resolved behavior:
+
+- **`postAndStrip`**: post a new message and strip interactive components from the old one, leaving content in place
+- **`postAndDelete`**: post a new message and delete the old one if non-ephemeral; fall back to `ephemeralFallbackDisposal` if ephemeral
+- **`postAndReplace`**: post a new message and replace the old one's content with the `closedMessage` string and clear all components
+
+For non-`'edit'` modes with a component interaction, the renderer calls `interaction.deferUpdate()` (acknowledges the interaction without editing the message) before disposing and reposting.
+
+Message cleanup behavior is resolved from the **departing** menu — the menu whose message is being replaced — not the arriving menu. This ensures that each menu controls how its own message is cleaned up when navigating away.
 
 ---
 
@@ -541,3 +634,80 @@ If a button/select action throws a non-guard error, it propagates to the session
 ### Timeout
 
 When the interaction collector times out, the session renders a "closed" state (disabled components) and cleans up. No error is thrown.
+
+---
+
+## Session Persistence & Scope
+
+FlowCord sessions are **entirely in-memory and process-scoped**. This is an intentional design boundary, not a missing feature.
+
+### What this means
+
+- All session state (`StateStore`, `StateAccessor`, `MenuStack`, navigation history) lives in the `MenuEngine._sessions` map for the lifetime of the process.
+- Timeouts are backed by Discord.js's collector mechanism — they are not stored anywhere durable.
+- If the bot process restarts (deployment, crash, host migration), all active sessions are lost. Users with open menus will see their interactions fail or time out silently.
+
+### What FlowCord is designed for
+
+FlowCord is optimized for **short-lived, synchronous interactive flows** — things that complete in one sitting:
+
+- Multi-step setup wizards
+- Confirmation dialogs
+- Paginated lists and selection menus
+- Inline forms with modals
+
+The default timeout (120 seconds) reflects this. Even with a custom timeout, sessions should be treated as transient UI shells, not durable state containers.
+
+### What FlowCord is NOT designed for
+
+Avoid using FlowCord sessions as the source of truth for anything that needs to survive across:
+
+- Bot restarts or deployments
+- Extended time periods (hours, days)
+
+A **multi-day poll**, for example, is a poor fit for a FlowCord session. Each vote is a discrete, stateless interaction — there is no ongoing session to maintain. The appropriate architecture stores votes in a database, handles each button click independently, and uses a scheduled task to close the poll after the deadline.
+
+### Recommended pattern: externally-backed state
+
+The resilient pattern is to treat FlowCord as a **presentation layer only**, with meaningful state living in a database:
+
+```
+User triggers /command
+        │
+        ▼
+FlowCord session starts  ←── ephemeral, process-scoped
+        │
+        ▼
+Render callbacks read from ──► external cache (e.g. node-cache)
+  cache or DB directly              │
+                                    │ invalidated when data changes,
+                                    │ shared across all sessions
+        │
+        ▼
+Button action fires
+        │
+        ├── Update ctx.state       (immediate UI feedback)
+        ├── Write to DB            (durable — survives restarts)
+        └── Invalidate cache       (keeps other sessions consistent)
+        │
+        ▼
+If session is interrupted, user re-runs /command
+        │
+        ▼
+Render reads from cache/DB ──► user picks up where they left off
+```
+
+### sessionState vs. an external cache
+
+These serve different purposes and should not be conflated:
+
+|                   | `sessionState`                              | External cache (e.g. node-cache) |
+| ----------------- | ------------------------------------------- | -------------------------------- |
+| **Scope**         | Single session                              | Shared across all sessions       |
+| **Lifetime**      | Dies with the session                       | Independent of any session       |
+| **Invalidation**  | Not possible externally                     | Explicit, on your terms          |
+| **Best used for** | Passing context between menus within a flow | DB query results, shared lookups |
+
+Use `sessionState` for ephemeral inter-menu context — data that only makes sense within the current flow (e.g. a selection in one menu that a later menu needs to act on). For DB-backed data, querying directly in render callbacks or action handlers is perfectly valid and the simplest starting point. An external cache (e.g. node-cache) is an optional optimization on top of that — worth adding when the same data is read frequently across multiple sessions, when you need explicit invalidation as records change, or when response latency matters (discord.js recommends this approach for autocomplete handlers for the same reason).
+
+With this separation, FlowCord handles the interactive UX and Discord API concerns, your database owns persistent state, and your cache layer manages read performance and consistency. A process restart is a minor inconvenience — the user re-opens the menu — rather than data loss.

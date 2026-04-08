@@ -10,14 +10,14 @@ jobs:
     name: Build, Test & Publish
     runs-on: ubuntu-latest
     permissions:
-      contents: write  # needed to create GitHub Releases
-      id-token: write  # needed for npm OIDC publishing
+      contents: write # needed to create GitHub Releases
+      id-token: write # needed for npm OIDC publishing
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # needed to check branch ancestry
+          fetch-depth: 0 # needed to check branch ancestry
 
       - name: Verify tag is on master
         run: |

@@ -27,7 +27,7 @@ export class LifecycleManager {
   async emit(
     name: HookName,
     ctx: MenuContext,
-    menuHooks?: MenuHooks
+    menuHooks?: MenuHooks,
   ): Promise<void> {
     // Global hooks fire first
     const globalHooks = this._globalHooks.get(name);

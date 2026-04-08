@@ -12,6 +12,7 @@ import type {
   ModalBuilder,
   ModalSubmitFields,
 } from 'discord.js';
+import type { InteractionBehavior } from './behavior';
 
 type AnySelectMenuBuilder = Exclude<
   MessageActionRowComponentBuilder,
@@ -78,7 +79,7 @@ export interface TextDisplayConfig {
 export interface SectionConfig<TCtx = MenuContextLike> {
   type: 'section';
   text: (string | TextDisplayConfig)[];
-  accessory?: ButtonConfig<TCtx> | ThumbnailConfig;
+  accessory: ButtonConfig<TCtx> | ThumbnailConfig;
 }
 
 export interface ContainerConfig<TCtx = MenuContextLike> {
@@ -151,6 +152,13 @@ export interface ButtonConfig<TCtx = MenuContextLike> {
   url?: string;
   /** Used by embed-mode pagination: pin button to start/end across pages */
   fixedPosition?: 'start' | 'end';
+  /**
+   * Per-interaction behavior override. Applied only for the single render
+   * cycle triggered by clicking this button, then reverts to menu/session/global
+   * behavior on the next interaction. Sits above menuExplicit in the hierarchy
+   * but below session and global overrides.
+   */
+  behavior?: InteractionBehavior;
 }
 
 /**
@@ -169,6 +177,12 @@ export interface SelectConfig<TCtx = MenuContextLike> {
   builder: AnySelectMenuBuilder;
   id?: string;
   onSelect?: SelectAction<TCtx>;
+  /**
+   * Per-interaction behavior override. Applied only for the single render
+   * cycle triggered by this select menu, then reverts to menu/session/global
+   * behavior on the next interaction.
+   */
+  behavior?: InteractionBehavior;
 }
 
 /**
@@ -207,7 +221,9 @@ export interface ReservedButtonsPlaceholderConfig {
  * Generic over TCtx so that builder subclasses (e.g. AdminMenuBuilder)
  * can provide a richer context type to inline callbacks.
  */
-export type Action<TCtx = MenuContextLike> = (ctx: TCtx) => Awaitable<void>;
+export type Action<TCtx = MenuContextLike> = (
+  ctx: TCtx,
+) => Awaitable<void>;
 
 /**
  * A select menu action receives the context and the selected values.
@@ -215,7 +231,7 @@ export type Action<TCtx = MenuContextLike> = (ctx: TCtx) => Awaitable<void>;
  */
 export type SelectAction<TCtx = MenuContextLike> = (
   ctx: TCtx,
-  values: string[]
+  values: string[],
 ) => Awaitable<void>;
 
 /**
@@ -230,13 +246,16 @@ export interface MenuContextLike {
   sessionState: unknown;
   client: Client<true>;
   interaction: Interaction;
-  goTo(menuId: string, options?: Record<string, unknown>): Promise<void>;
+  goTo(
+    menuId: string,
+    options?: Record<string, unknown>,
+  ): Promise<void>;
   goBack(result?: unknown): Promise<void>;
   close(): Promise<void>;
   hardRefresh(): Promise<void>;
   openSubMenu(
     menuId: string,
-    opts: { onComplete: Action; [key: string]: unknown }
+    opts: { onComplete: Action; [key: string]: unknown },
   ): Promise<void>;
   complete(result?: unknown): Promise<void>;
 }
@@ -251,6 +270,12 @@ export interface ModalConfig<TCtx = MenuContextLike> {
   id?: string;
   builder: ModalBuilder;
   onSubmit?: (ctx: TCtx, fields: ModalSubmitFields) => Promise<void>;
+  /**
+   * Per-interaction behavior override. Applied only for the single render
+   * cycle after this modal is submitted, then reverts to menu/session/global
+   * behavior on the next interaction.
+   */
+  behavior?: InteractionBehavior;
 }
 
 // ---------------------------------------------------------------------------
@@ -266,7 +291,9 @@ export interface PaginationOptions {
   };
 }
 
-export interface ListPaginationOptions<TCtx = MenuContextLike> extends PaginationOptions {
+export interface ListPaginationOptions<
+  TCtx = MenuContextLike,
+> extends PaginationOptions {
   getTotalQuantityItems: (ctx: TCtx) => Awaitable<number>;
   itemsPerPage?: number;
 }

@@ -19,8 +19,11 @@ import type { StateStore } from '../state/StateStore';
  */
 export interface MenuContext<
   TState extends Record<string, unknown> = Record<string, unknown>,
-  TSessionState extends Record<string, unknown> = Record<string, unknown>,
-  TOptions extends Record<string, unknown> = Record<string, unknown>
+  TSessionState extends Record<string, unknown> = Record<
+    string,
+    unknown
+  >,
+  TOptions extends Record<string, unknown> = Record<string, unknown>,
 > {
   /** The current MenuSession instance */
   session: MenuSessionLike;
@@ -52,10 +55,16 @@ export interface MenuContext<
   // --- Navigation ---
 
   /** Navigate to another registered menu */
-  goTo(menuId: string, options?: Record<string, unknown>): Promise<void>;
+  goTo(
+    menuId: string,
+    options?: Record<string, unknown>,
+  ): Promise<void>;
 
   /** Alias for goTo — more descriptive in inline callbacks */
-  navigateTo(menuId: string, options?: Record<string, unknown>): Promise<void>;
+  navigateTo(
+    menuId: string,
+    options?: Record<string, unknown>,
+  ): Promise<void>;
 
   /** Pop the navigation stack, returning to the previous menu */
   goBack(result?: unknown): Promise<void>;
@@ -114,6 +123,5 @@ export type ResponseType = 'component' | 'message' | 'mixed';
  * A function that extends the context with additional properties.
  * Used by builder subclasses (e.g., AdminMenuBuilder) to add domain helpers.
  */
-export type ContextExtension<TExtra extends Record<string, unknown>> = (
-  baseCtx: MenuContext
-) => TExtra;
+export type ContextExtension<TExtra extends Record<string, unknown>> =
+  (baseCtx: MenuContext) => TExtra;

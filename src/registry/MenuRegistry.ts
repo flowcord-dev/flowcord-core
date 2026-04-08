@@ -13,6 +13,10 @@ import type {
   SelectConfig,
   SetButtonsOptions,
 } from '../types/common';
+import type {
+  InteractionBehavior,
+  MenuBehavior,
+} from '../types/behavior';
 import type { EmbedBuilder } from 'discord.js';
 import type { MenuSessionLike } from '../context/MenuContext';
 
@@ -29,17 +33,23 @@ export interface MenuDefinition<TCtx = MenuContext> {
   setButtons?: (ctx: TCtx) => Awaitable<ButtonConfig<TCtx>[]>;
   setButtonsOptions?: SetButtonsOptions;
   setSelectMenu?: (ctx: TCtx) => Awaitable<SelectConfig<TCtx>>;
-  setModal?: (ctx: TCtx) => Awaitable<ModalConfig<TCtx> | ModalConfig<TCtx>[]>;
+  setModal?: (
+    ctx: TCtx,
+  ) => Awaitable<ModalConfig<TCtx> | ModalConfig<TCtx>[]>;
   setLayout?: (ctx: TCtx) => Awaitable<ComponentConfig<TCtx>[]>;
   handleMessage?: (ctx: TCtx, response: string) => Awaitable<void>;
+  messageHandlerBehavior?: InteractionBehavior;
   listPagination?: ListPaginationOptions<TCtx>;
   isTrackedInHistory: boolean;
   isCancellable: boolean;
   isReturnable: boolean;
+  behavior: MenuBehavior;
   preserveStateOnReturn: boolean;
   fallbackMenu?: string;
   fallbackMenuOptions?: Record<string, unknown>;
-  contextExtensions: Array<(baseCtx: MenuContext) => Record<string, unknown>>;
+  contextExtensions: Array<
+    (baseCtx: MenuContext) => Record<string, unknown>
+  >;
 }
 
 /**
@@ -47,17 +57,20 @@ export interface MenuDefinition<TCtx = MenuContext> {
  */
 export type CreateMenuDefinitionFn<TCtx = MenuContext> = (
   sessionLike: MenuSessionLike,
-  options?: Record<string, unknown>
+  options?: Record<string, unknown>,
 ) => Awaitable<MenuDefinition<TCtx>>;
 
 export class MenuRegistry {
-  private readonly _registry = new Map<string, CreateMenuDefinitionFn>();
+  private readonly _registry = new Map<
+    string,
+    CreateMenuDefinitionFn
+  >();
 
   /** Register a menu factory by name. */
   register(name: string, factory: CreateMenuDefinitionFn): void {
     if (this._registry.has(name)) {
       throw new Error(
-        `Menu "${name}" is already registered. Duplicate registration is not allowed.`
+        `Menu "${name}" is already registered. Duplicate registration is not allowed.`,
       );
     }
     this._registry.set(name, factory);

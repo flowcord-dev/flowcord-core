@@ -16,6 +16,7 @@ import type {
   FileConfig,
   MediaGalleryConfig,
   MediaGalleryItemConfig,
+  MenuContextLike,
   PaginatedGroupConfig,
   SectionConfig,
   SelectConfig,
@@ -23,6 +24,7 @@ import type {
   TextDisplayConfig,
   ThumbnailConfig,
   Action,
+  SelectAction,
 } from '../types';
 import type { ButtonStyle } from 'discord.js';
 
@@ -30,17 +32,21 @@ import type { ButtonStyle } from 'discord.js';
 // Embed-Core Components
 // ---------------------------------------------------------------------------
 
-export interface ButtonOptions {
+export interface ButtonOptions<TCtx = MenuContextLike> {
   label: string;
   style: ButtonStyle;
   id?: string;
   disabled?: boolean;
   emoji?: string;
-  action?: Action;
+  url?: string;
+  opensModal?: boolean | string;
+  action?: Action<TCtx>;
 }
 
 /** Create a button component with an associated action. */
-export function button(opts: ButtonOptions): ButtonConfig {
+export function button<TCtx = MenuContextLike>(
+  opts: ButtonOptions<TCtx>,
+): ButtonConfig<TCtx> {
   return {
     type: 'button',
     label: opts.label,
@@ -48,18 +54,22 @@ export function button(opts: ButtonOptions): ButtonConfig {
     id: opts.id,
     disabled: opts.disabled,
     emoji: opts.emoji,
+    url: opts.url,
+    opensModal: opts.opensModal,
     action: opts.action,
   };
 }
 
-export interface SelectOptions {
+export interface SelectOptions<TCtx = MenuContextLike> {
   builder: SelectConfig['builder'];
   id?: string;
-  onSelect?: Action;
+  onSelect?: SelectAction<TCtx>;
 }
 
 /** Create a select menu config with an associated action. */
-export function select(opts: SelectOptions): SelectConfig {
+export function select<TCtx = MenuContextLike>(
+  opts: SelectOptions<TCtx>,
+): SelectConfig<TCtx> {
   return {
     type: 'select',
     builder: opts.builder,
@@ -69,9 +79,9 @@ export function select(opts: SelectOptions): SelectConfig {
 }
 
 /** Create an action row containing buttons and/or select menus. */
-export function actionRow(
-  children: (ButtonConfig | SelectConfig)[]
-): ActionRowConfig {
+export function actionRow<TCtx = MenuContextLike>(
+  children: (ButtonConfig<TCtx> | SelectConfig<TCtx>)[],
+): ActionRowConfig<TCtx> {
   return {
     type: 'action_row',
     children,
@@ -87,13 +97,15 @@ export function text(content: string): TextDisplayConfig {
   return { type: 'text_display', content };
 }
 
-export interface SectionOptions {
+export interface SectionOptions<TCtx = MenuContextLike> {
   text: (string | TextDisplayConfig)[];
-  accessory?: ButtonConfig | ThumbnailConfig;
+  accessory: ButtonConfig<TCtx> | ThumbnailConfig;
 }
 
-/** Create a section with text content and an optional accessory (button or thumbnail). */
-export function section(opts: SectionOptions): SectionConfig {
+/** Create a section with text content and an accessory (button or thumbnail). */
+export function section<TCtx = MenuContextLike>(
+  opts: SectionOptions<TCtx>,
+): SectionConfig<TCtx> {
   return {
     type: 'section',
     text: opts.text,
@@ -101,14 +113,16 @@ export function section(opts: SectionOptions): SectionConfig {
   };
 }
 
-export interface ContainerOptions {
+export interface ContainerOptions<TCtx = MenuContextLike> {
   accentColor?: number;
   spoiler?: boolean;
-  children: ComponentConfig[];
+  children: ComponentConfig<TCtx>[];
 }
 
 /** Create a container that groups components with an optional accent color. */
-export function container(opts: ContainerOptions): ContainerConfig {
+export function container<TCtx = MenuContextLike>(
+  opts: ContainerOptions<TCtx>,
+): ContainerConfig<TCtx> {
   return {
     type: 'container',
     accentColor: opts.accentColor,
@@ -153,7 +167,7 @@ export function thumbnail(opts: ThumbnailOptions): ThumbnailConfig {
 
 /** Create a media gallery with one or more media items. */
 export function mediaGallery(
-  items: MediaGalleryItemConfig[]
+  items: MediaGalleryItemConfig[],
 ): MediaGalleryConfig {
   return {
     type: 'media_gallery',
@@ -188,10 +202,10 @@ export function file(opts: FileOptions): FileConfig {
  * The renderer slices the button array per page, creating action rows automatically.
  * Only one paginatedGroup per layout is supported.
  */
-export function paginatedGroup(
-  buttons: ButtonConfig[],
-  options?: ButtonPaginationOptions
-): PaginatedGroupConfig {
+export function paginatedGroup<TCtx = MenuContextLike>(
+  buttons: ButtonConfig<TCtx>[],
+  options?: ButtonPaginationOptions,
+): PaginatedGroupConfig<TCtx> {
   return {
     type: 'paginated_group',
     buttons,

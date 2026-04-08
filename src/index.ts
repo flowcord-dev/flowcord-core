@@ -14,7 +14,10 @@ export type { FlowCordClient } from './FlowCordClient';
 
 // Engine
 export { MenuEngine, MenuSession } from './engine';
-export type { MenuEngineConfig } from './engine';
+export type {
+  MenuEngineConfig,
+  HandleInteractionOptions,
+} from './engine';
 
 // Menu system
 export { MenuBuilder, MenuInstance, MenuRenderer } from './menu';
@@ -85,8 +88,15 @@ export type {
 } from './components';
 
 // Registries
-export { MenuRegistry, ActionRegistry, HookRegistry } from './registry';
-export type { MenuDefinition, CreateMenuDefinitionFn } from './registry';
+export {
+  MenuRegistry,
+  ActionRegistry,
+  HookRegistry,
+} from './registry';
+export type {
+  MenuDefinition,
+  CreateMenuDefinitionFn,
+} from './registry';
 
 // Tracing
 export { NavigationTracer } from './tracing';
@@ -126,4 +136,14 @@ export type {
 } from './types';
 
 export type { MenuEnvironment } from './types';
-export type { ComponentInteraction, AnySessionInteraction } from './types';
+export type {
+  ComponentInteraction,
+  AnySessionInteraction,
+} from './types';
+export type {
+  BehaviorConfig,
+  BehaviorPolicy,
+  InteractionBehavior,
+  MenuBehavior,
+  ResolvedBehavior,
+} from './types';

@@ -8,7 +8,9 @@ import type { Awaitable } from '../types/common';
 /**
  * Lifecycle hook function signature.
  */
-export type HookFn<TCtx = MenuContext> = (ctx: TCtx) => Awaitable<void>;
+export type HookFn<TCtx = MenuContext> = (
+  ctx: TCtx,
+) => Awaitable<void>;
 
 /**
  * All available lifecycle hook names.

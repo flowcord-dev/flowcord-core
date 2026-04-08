@@ -67,10 +67,16 @@ export interface ReservedButtonsOptions {
  * Build the reserved button action row based on current session/pagination state.
  */
 export function buildReservedButtonRow(
-  options: ReservedButtonsOptions
+  options: ReservedButtonsOptions,
 ): ActionRowConfig | null {
-  const { showBack, showCancel, pagination, stableButtons, mode, labels } =
-    options;
+  const {
+    showBack,
+    showCancel,
+    pagination,
+    stableButtons,
+    mode,
+    labels,
+  } = options;
 
   const buttons: ButtonConfig[] = [];
 
@@ -87,7 +93,8 @@ export function buildReservedButtonRow(
   // --- Pagination buttons ---
   if (pagination) {
     const isFirstPage = pagination.currentPage <= 0;
-    const isLastPage = pagination.currentPage >= pagination.totalPages - 1;
+    const isLastPage =
+      pagination.currentPage >= pagination.totalPages - 1;
     const showPrevious = stableButtons || !isFirstPage;
     const showNext = stableButtons || !isLastPage;
 
@@ -145,14 +152,17 @@ export function buildReservedButtonRow(
  * Count how many reserved buttons will be in the row.
  * Used by ComponentValidator for budget calculation.
  */
-export function countReservedButtons(options: ReservedButtonsOptions): number {
+export function countReservedButtons(
+  options: ReservedButtonsOptions,
+): number {
   let count = 0;
   if (options.showBack) count++;
   if (options.showCancel) count++;
   if (options.pagination) {
     const isFirstPage = options.pagination.currentPage <= 0;
     const isLastPage =
-      options.pagination.currentPage >= options.pagination.totalPages - 1;
+      options.pagination.currentPage >=
+      options.pagination.totalPages - 1;
     if (options.stableButtons || !isFirstPage) count++; // Previous
     if (options.stableButtons || !isLastPage) count++; // Next
     if (options.mode === 'layout') count++; // Page counter
@@ -166,7 +176,7 @@ export function countReservedButtons(options: ReservedButtonsOptions): number {
  */
 export function injectReservedButtons(
   components: ComponentConfig[],
-  row: ActionRowConfig
+  row: ActionRowConfig,
 ): ComponentConfig[] {
   const result: ComponentConfig[] = [];
   let injected = false;
@@ -176,14 +186,16 @@ export function injectReservedButtons(
       result.push(row);
       injected = true;
     } else if (component.type === 'container' && !injected) {
-      // Search inside containers for the placeholder
-      const injectedChildren = injectReservedButtons(component.children, row);
       const hadPlaceholder = containsPlaceholder(component.children);
-      result.push({
-        ...component,
-        children: injectedChildren,
-      });
-      if (hadPlaceholder) injected = true;
+      if (hadPlaceholder) {
+        result.push({
+          ...component,
+          children: injectReservedButtons(component.children, row),
+        });
+        injected = true;
+      } else {
+        result.push(component);
+      }
     } else {
       result.push(component);
     }
@@ -200,7 +212,8 @@ export function injectReservedButtons(
 function containsPlaceholder(components: ComponentConfig[]): boolean {
   for (const c of components) {
     if (c.type === 'reserved_buttons_placeholder') return true;
-    if (c.type === 'container' && containsPlaceholder(c.children)) return true;
+    if (c.type === 'container' && containsPlaceholder(c.children))
+      return true;
   }
   return false;
 }

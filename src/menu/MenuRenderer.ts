@@ -13,12 +13,12 @@ import {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
-  ComponentType,
   ContainerBuilder,
   FileBuilder,
   MediaGalleryBuilder,
   MediaGalleryItemBuilder,
   MessageFlags,
+  Routes,
   SectionBuilder,
   SeparatorBuilder,
   SeparatorSpacingSize,
@@ -32,6 +32,10 @@ import {
 } from 'discord.js';
 import type { MenuInstance } from './MenuInstance';
 import type { MenuContext } from '../context/MenuContext';
+import type {
+  InteractionBehavior,
+  ResolvedBehavior,
+} from '../types/behavior';
 import type {
   ActionRowConfig,
   ButtonConfig,
@@ -70,25 +74,107 @@ export class MenuRenderer {
 
   private _activeMessage: Message | null = null;
   private _activeMessageMode: RenderMode | null = null;
+  private _activeMessageEphemeral = false;
+  private _activeMessageIsFollowUp = false;
   private _lastUpdateSource: LastUpdateSource | null = null;
 
+  /**
+   * The actual ephemeral state used for deferReply — may differ from
+   * definition.ephemeral for async factories where the caller provides the
+   * flag. Set once after deferReply so the first render uses the real state.
+   */
+  private _deferEphemeral: boolean | null = null;
+
   /** The last component interaction received — used for .update() */
-  private _lastComponentInteraction: MessageComponentInteraction | null = null;
+  private _lastComponentInteraction: MessageComponentInteraction | null =
+    null;
 
   /** Whether we need to use followUp instead of editReply (after message collection) */
   private _isReset = false;
+
+  /**
+   * Pending per-interaction behavior override. Set by the session after a
+   * button/select/modal/message interaction, consumed by the next render cycle
+   * via consumeInteractionBehavior(). After consumption it is cleared so
+   * subsequent renders see no interaction override.
+   */
+  private _pendingInteractionBehavior:
+    | InteractionBehavior
+    | undefined = undefined;
+
+  /**
+   * Snapshot of the pre-serialization layout component tree from the last
+   * layout render, along with the MenuInstance used to serialize it. Used by
+   * stripComponents disposal to produce a v2-compatible payload that preserves
+   * display components and only removes/disables interactive ones.
+   */
+  private _lastRenderedLayoutComponents: ComponentConfig[] | null =
+    null;
+  private _lastRenderedLayoutMenuInstance: MenuInstance | null = null;
 
   get activeMessageMode(): RenderMode | null {
     return this._activeMessageMode;
   }
 
-  /** Set after message collection so the next render uses followUp. */
-  setResetFlag(): void {
+  /**
+   * Called after message collection so the next render disposes the old
+   * message appropriately. The disposal strategy is determined by the
+   * resolved behavior at render time (which includes any interaction-level
+   * behavior set via setNextInteractionBehavior).
+   */
+  setMessageCollected(): void {
     this._isReset = true;
   }
 
+  /**
+   * Store the per-interaction behavior override from the triggering button,
+   * select, message handler, or modal. Consumed once by the next render cycle.
+   */
+  setNextInteractionBehavior(
+    behavior: InteractionBehavior | undefined,
+  ): void {
+    this._pendingInteractionBehavior = behavior;
+  }
+
+  /**
+   * Consume and return the pending interaction behavior, clearing it so
+   * subsequent renders see no override unless set again.
+   */
+  consumeInteractionBehavior(): InteractionBehavior | undefined {
+    const b = this._pendingInteractionBehavior;
+    this._pendingInteractionBehavior = undefined;
+    return b;
+  }
+
+  /**
+   * Called on navigation to strip display-level interaction behaviors
+   * (ephemeral) from the pending state while preserving cleanup behaviors
+   * (messageCleanup, ephemeralFallbackDisposal, closedMessage, deleteUserMessages).
+   * Cleanup behaviors describe what happens to the departing menu's message and
+   * must survive navigation to be applied when the destination menu renders.
+   */
+  clearDisplayBehaviors(): void {
+    if (!this._pendingInteractionBehavior) return;
+    const { ephemeral: _, ...rest } =
+      this._pendingInteractionBehavior;
+    this._pendingInteractionBehavior =
+      Object.keys(rest).length > 0 ? rest : undefined;
+  }
+
+  /**
+   * Record the actual ephemeral state used for deferReply.
+   * Called by MenuSession immediately after deferReply so the first render
+   * sets _activeMessageEphemeral to the real Discord message state rather
+   * than definition.ephemeral (which may differ for async factories).
+   */
+  seedDeferEphemeral(ephemeral: boolean): void {
+    this._deferEphemeral = ephemeral;
+  }
+
   /** Set the latest component interaction for .update() calls. */
-  setLastComponentInteraction(interaction: MessageComponentInteraction): void {
+  setLastComponentInteraction(
+    interaction: MessageComponentInteraction,
+  ): void {
     this._lastComponentInteraction = interaction;
   }
 
@@ -103,7 +189,8 @@ export class MenuRenderer {
   async render(
     menuInstance: MenuInstance,
     ctx: MenuContext,
-    commandInteraction: ChatInputCommandInteraction
+    commandInteraction: ChatInputCommandInteraction,
+    behavior: ResolvedBehavior,
   ): Promise<void> {
     const definition = menuInstance.definition;
     const newMode = definition.mode;
@@ -120,28 +207,50 @@ export class MenuRenderer {
     }
 
     // Send or update the message based on current state
-    await this.sendPayload(payload, newMode, commandInteraction);
+    await this.sendPayload(
+      payload,
+      newMode,
+      commandInteraction,
+      behavior,
+    );
   }
 
   /**
    * Send the cancel state — clear components and show cancellation message.
    */
   async renderCancelled(
-    commandInteraction: ChatInputCommandInteraction
+    commandInteraction: ChatInputCommandInteraction,
   ): Promise<void> {
-    const payload: Record<string, unknown> = {
-      content: '*Command Cancelled*',
-      embeds: [],
-      components: [],
-    };
+    // Layout-mode messages have the IsComponentsV2 flag permanently set.
+    // Any edit must include the flag and use display components instead of content.
+    const payload: Record<string, unknown> =
+      this._activeMessageMode === 'layout'
+        ? {
+            components: [
+              new TextDisplayBuilder().setContent(
+                '*Command Cancelled*',
+              ),
+            ],
+            embeds: [],
+            content: '',
+            flags: MessageFlags.IsComponentsV2,
+          }
+        : {
+            content: '*Command Cancelled*',
+            embeds: [],
+            components: [],
+          };
 
     try {
       if (this._lastComponentInteraction && !this._isReset) {
         await this._lastComponentInteraction.update(payload);
-      } else if (this._activeMessage) {
+      } else if (
+        this._activeMessage &&
+        !this._activeMessageEphemeral
+      ) {
         await this._activeMessage.edit(payload);
       } else {
-        await commandInteraction.editReply(payload);
+        await this.editEphemeralMessage(commandInteraction, payload);
       }
     } catch {
       // Best-effort cleanup — interaction may have expired
@@ -149,22 +258,38 @@ export class MenuRenderer {
   }
 
   /**
-   * Send the close state — remove components from the message.
+   * Send the close state — remove interactive components from the message.
    */
   async renderClosed(
-    commandInteraction: ChatInputCommandInteraction
+    commandInteraction: ChatInputCommandInteraction,
   ): Promise<void> {
-    const payload: Record<string, unknown> = {
-      components: [],
-    };
+    // Layout-mode messages require the IsComponentsV2 flag on all edits.
+    const payload: Record<string, unknown> =
+      this._activeMessageMode === 'layout'
+        ? {
+            components: [
+              new TextDisplayBuilder().setContent(
+                '-# This menu has expired.',
+              ),
+            ],
+            embeds: [],
+            content: '',
+            flags: MessageFlags.IsComponentsV2,
+          }
+        : {
+            components: [],
+          };
 
     try {
       if (this._lastComponentInteraction && !this._isReset) {
         await this._lastComponentInteraction.update(payload);
-      } else if (this._activeMessage) {
+      } else if (
+        this._activeMessage &&
+        !this._activeMessageEphemeral
+      ) {
         await this._activeMessage.edit(payload);
       } else {
-        await commandInteraction.editReply(payload);
+        await this.editEphemeralMessage(commandInteraction, payload);
       }
     } catch {
       // Best-effort cleanup
@@ -177,7 +302,7 @@ export class MenuRenderer {
 
   private async buildEmbedsRender(
     menuInstance: MenuInstance,
-    ctx: MenuContext
+    ctx: MenuContext,
   ): Promise<RenderPayload> {
     const definition = menuInstance.definition;
     let embeds: EmbedBuilder[] = [];
@@ -186,12 +311,16 @@ export class MenuRenderer {
 
     // Pre-compute list pagination state so setters can use ctx.pagination
     if (definition.listPagination) {
-      const totalItems = await definition.listPagination.getTotalQuantityItems(
-        ctx
+      const totalItems =
+        await definition.listPagination.getTotalQuantityItems(ctx);
+      const itemsPerPage =
+        definition.listPagination.itemsPerPage ?? 50;
+      const totalPages = Math.max(
+        1,
+        Math.ceil(totalItems / itemsPerPage),
       );
-      const itemsPerPage = definition.listPagination.itemsPerPage ?? 50;
-      const totalPages = Math.max(1, Math.ceil(totalItems / itemsPerPage));
-      const currentPage = menuInstance.paginationState?.currentPage ?? 0;
+      const currentPage =
+        menuInstance.paginationState?.currentPage ?? 0;
 
       menuInstance.paginationState = {
         currentPage,
@@ -199,7 +328,10 @@ export class MenuRenderer {
         itemsPerPage,
         totalItems,
         startIndex: currentPage * itemsPerPage,
-        endIndex: Math.min((currentPage + 1) * itemsPerPage, totalItems),
+        endIndex: Math.min(
+          (currentPage + 1) * itemsPerPage,
+          totalItems,
+        ),
       };
 
       // Update context so setters see the current pagination state
@@ -213,19 +345,24 @@ export class MenuRenderer {
     }
 
     if (definition.setSelectMenu) {
-      selectConfig = (await definition.setSelectMenu(ctx)) as SelectConfig;
+      selectConfig = (await definition.setSelectMenu(
+        ctx,
+      )) as SelectConfig;
     }
 
     // Handle button pagination (slice buttons for current page).
     // Auto-enable pagination when needed so embed rows never exceed Discord limits.
-    const configuredButtonPagination = definition.setButtonsOptions?.pagination;
-    const hasConfiguredButtonPagination = !!configuredButtonPagination;
-    const maxButtonsWithoutPagination = this.getMaxEmbedButtonsPerPage(
-      menuInstance,
-      !!selectConfig,
-      ctx,
-      false
-    );
+    const configuredButtonPagination =
+      definition.setButtonsOptions?.pagination;
+    const hasConfiguredButtonPagination =
+      !!configuredButtonPagination;
+    const maxButtonsWithoutPagination =
+      this.getMaxEmbedButtonsPerPage(
+        menuInstance,
+        !!selectConfig,
+        ctx,
+        false,
+      );
     const needsAutoButtonPagination =
       !hasConfiguredButtonPagination &&
       !definition.listPagination &&
@@ -236,30 +373,38 @@ export class MenuRenderer {
       buttons.length > 0
     ) {
       const fixedStartButtons = buttons.filter(
-        (b) => b.fixedPosition === 'start'
+        (b) => b.fixedPosition === 'start',
       );
-      const fixedEndButtons = buttons.filter((b) => b.fixedPosition === 'end');
+      const fixedEndButtons = buttons.filter(
+        (b) => b.fixedPosition === 'end',
+      );
       const pageableButtons = buttons.filter((b) => !b.fixedPosition);
 
-      const requestedPerPage = configuredButtonPagination?.perPage ?? 25;
-      const maxButtonsWithReservedRow = this.getMaxEmbedButtonsPerPage(
-        menuInstance,
-        !!selectConfig,
-        ctx,
-        true
-      );
+      const requestedPerPage =
+        configuredButtonPagination?.perPage ?? 25;
+      const maxButtonsWithReservedRow =
+        this.getMaxEmbedButtonsPerPage(
+          menuInstance,
+          !!selectConfig,
+          ctx,
+          true,
+        );
       const fixedButtonsCount =
         fixedStartButtons.length + fixedEndButtons.length;
       const perPage = Math.max(
         1,
-        Math.min(requestedPerPage, maxButtonsWithReservedRow)
+        Math.min(requestedPerPage, maxButtonsWithReservedRow),
       );
-      const pageItemsPerPage = Math.max(1, perPage - fixedButtonsCount);
+      const pageItemsPerPage = Math.max(
+        1,
+        perPage - fixedButtonsCount,
+      );
       const totalPages = Math.max(
         1,
-        Math.ceil(pageableButtons.length / pageItemsPerPage)
+        Math.ceil(pageableButtons.length / pageItemsPerPage),
       );
-      const currentPage = menuInstance.paginationState?.currentPage ?? 0;
+      const currentPage =
+        menuInstance.paginationState?.currentPage ?? 0;
 
       menuInstance.paginationState = {
         currentPage,
@@ -269,7 +414,7 @@ export class MenuRenderer {
         startIndex: currentPage * pageItemsPerPage,
         endIndex: Math.min(
           (currentPage + 1) * pageItemsPerPage,
-          pageableButtons.length
+          pageableButtons.length,
         ),
       };
 
@@ -283,9 +428,13 @@ export class MenuRenderer {
       // Slice for current page
       const pageButtons = pageableButtons.slice(
         menuInstance.paginationState.startIndex,
-        menuInstance.paginationState.endIndex
+        menuInstance.paginationState.endIndex,
       );
-      buttons = [...fixedStartButtons, ...pageButtons, ...fixedEndButtons];
+      buttons = [
+        ...fixedStartButtons,
+        ...pageButtons,
+        ...fixedEndButtons,
+      ];
     } else {
       // No button pagination (or list pagination already computed) — register button actions
       menuInstance.registerButtonActions(buttons);
@@ -304,7 +453,7 @@ export class MenuRenderer {
     if (definition.setModal) {
       const modalConfigs = await definition.setModal(ctx);
       menuInstance.registerModalConfigs(
-        modalConfigs as ModalConfig | ModalConfig[]
+        modalConfigs as ModalConfig | ModalConfig[],
       );
     }
 
@@ -315,7 +464,7 @@ export class MenuRenderer {
     const reservedOpts = this.buildReservedButtonsOptions(
       menuInstance,
       'embeds',
-      ctx
+      ctx,
     );
     const reservedRow = buildReservedButtonRow(reservedOpts);
 
@@ -324,7 +473,7 @@ export class MenuRenderer {
       menuInstance,
       buttons,
       reservedRow,
-      selectConfig
+      selectConfig,
     );
 
     // Add pagination footer to embeds
@@ -338,7 +487,9 @@ export class MenuRenderer {
       const footerText = `Page ${ps.currentPage + 1} of ${ps.totalPages}`;
       const existingFooter = lastEmbed.data.footer?.text;
       lastEmbed.setFooter({
-        text: existingFooter ? `${existingFooter} • ${footerText}` : footerText,
+        text: existingFooter
+          ? `${existingFooter} • ${footerText}`
+          : footerText,
       });
     }
 
@@ -355,19 +506,23 @@ export class MenuRenderer {
 
   private async buildLayoutRender(
     menuInstance: MenuInstance,
-    ctx: MenuContext
+    ctx: MenuContext,
   ): Promise<RenderPayload> {
     const definition = menuInstance.definition;
     let components: ComponentConfig[] = [];
 
     // Pre-compute list pagination state so setLayout can use ctx.pagination
     if (definition.listPagination) {
-      const totalItems = await definition.listPagination.getTotalQuantityItems(
-        ctx
+      const totalItems =
+        await definition.listPagination.getTotalQuantityItems(ctx);
+      const itemsPerPage =
+        definition.listPagination.itemsPerPage ?? 50;
+      const totalPages = Math.max(
+        1,
+        Math.ceil(totalItems / itemsPerPage),
       );
-      const itemsPerPage = definition.listPagination.itemsPerPage ?? 50;
-      const totalPages = Math.max(1, Math.ceil(totalItems / itemsPerPage));
-      const currentPage = menuInstance.paginationState?.currentPage ?? 0;
+      const currentPage =
+        menuInstance.paginationState?.currentPage ?? 0;
 
       menuInstance.paginationState = {
         currentPage,
@@ -375,7 +530,10 @@ export class MenuRenderer {
         itemsPerPage,
         totalItems,
         startIndex: currentPage * itemsPerPage,
-        endIndex: Math.min((currentPage + 1) * itemsPerPage, totalItems),
+        endIndex: Math.min(
+          (currentPage + 1) * itemsPerPage,
+          totalItems,
+        ),
       };
 
       // Update context so setLayout sees the current pagination state
@@ -384,7 +542,9 @@ export class MenuRenderer {
     }
 
     if (definition.setLayout) {
-      components = (await definition.setLayout(ctx)) as ComponentConfig[];
+      components = (await definition.setLayout(
+        ctx,
+      )) as ComponentConfig[];
     }
 
     // Expand paginatedGroup markers
@@ -397,7 +557,7 @@ export class MenuRenderer {
     if (definition.setModal) {
       const modalConfigs = await definition.setModal(ctx);
       menuInstance.registerModalConfigs(
-        modalConfigs as ModalConfig | ModalConfig[]
+        modalConfigs as ModalConfig | ModalConfig[],
       );
     }
 
@@ -408,17 +568,21 @@ export class MenuRenderer {
     const reservedOpts = this.buildReservedButtonsOptions(
       menuInstance,
       'layout',
-      ctx
+      ctx,
     );
     const reservedRow = buildReservedButtonRow(reservedOpts);
     if (reservedRow) {
       components = injectReservedButtons(components, reservedRow);
     }
 
+    // Snapshot the pre-serialization tree for stripComponents disposal
+    this._lastRenderedLayoutComponents = components;
+    this._lastRenderedLayoutMenuInstance = menuInstance;
+
     // Convert to Discord.js builders
     const discordComponents = this.serializeLayoutComponents(
       components,
-      menuInstance
+      menuInstance,
     );
 
     return {
@@ -434,24 +598,94 @@ export class MenuRenderer {
   private async sendPayload(
     payload: RenderPayload,
     newMode: RenderMode,
-    commandInteraction: ChatInputCommandInteraction
+    commandInteraction: ChatInputCommandInteraction,
+    behavior: ResolvedBehavior,
   ): Promise<void> {
+    const { ephemeral } = behavior;
     const modeChanged =
-      this._activeMessageMode !== null && this._activeMessageMode !== newMode;
+      this._activeMessageMode !== null &&
+      this._activeMessageMode !== newMode;
+    const ephemeralChanged =
+      this._activeMessage !== null &&
+      this._activeMessageEphemeral !== ephemeral;
 
     const discordPayload = this.buildDiscordPayload(payload, newMode);
 
-    if (modeChanged) {
-      // Mode transition — send new message via followUp, delete old
-      const newMessage = await commandInteraction.followUp(discordPayload);
-      await this.deleteOldMessage();
+    if (ephemeralChanged) {
+      // Ephemeral state changed — dispose old message, send new as followUp.
+      await this.disposeOldMessage(behavior, commandInteraction);
+      const followUpPayload = ephemeral
+        ? this.makeEphemeral(discordPayload)
+        : discordPayload;
+      const newMessage =
+        await commandInteraction.followUp(followUpPayload);
       this._activeMessage = newMessage as Message;
+      this._activeMessageEphemeral = ephemeral;
+      this._activeMessageIsFollowUp = true;
+      this._lastComponentInteraction = null;
+      this._lastUpdateSource = 'followUp';
+    } else if (modeChanged) {
+      // Mode transition — dispose old message, send new as followUp.
+      await this.disposeOldMessage(behavior, commandInteraction);
+      const followUpPayload = ephemeral
+        ? this.makeEphemeral(discordPayload)
+        : discordPayload;
+      const newMessage =
+        await commandInteraction.followUp(followUpPayload);
+      this._activeMessage = newMessage as Message;
+      this._activeMessageEphemeral = ephemeral;
+      this._activeMessageIsFollowUp = true;
       this._lastUpdateSource = 'followUp';
     } else if (this._isReset) {
-      // After message collection — use followUp
-      const newMessage = await commandInteraction.followUp(discordPayload);
-      this._activeMessage = newMessage as Message;
       this._isReset = false;
+      if (behavior.messageCleanup !== 'edit') {
+        // postAnd*: dispose the old message and post the updated menu as a followUp.
+        // The resolved behavior already includes any message-handler interaction
+        // behavior (cleanup mode, closedMessage, etc.) so use it directly.
+        await this.disposeOldMessage(behavior, commandInteraction);
+        const followUpPayload = ephemeral
+          ? this.makeEphemeral(discordPayload)
+          : discordPayload;
+        const newMessage =
+          await commandInteraction.followUp(followUpPayload);
+        this._activeMessage = newMessage as Message;
+        this._activeMessageEphemeral = ephemeral;
+        this._activeMessageIsFollowUp = true;
+        this._lastUpdateSource = 'followUp';
+      } else {
+        // edit (default): edit the existing bot message with the updated
+        // state. No disposal, no repost — the menu stays where it is. This is
+        // the right default: after collecting a message the UI is least disruptive
+        // when only the content changes, not the message position.
+        if (this._activeMessageEphemeral) {
+          await this.editEphemeralMessage(
+            commandInteraction,
+            discordPayload,
+          );
+        } else if (this._activeMessage) {
+          await this._activeMessage.edit(discordPayload);
+        }
+        this._lastUpdateSource = 'editReply';
+      }
+    } else if (
+      behavior.messageCleanup !== 'edit' &&
+      this._activeMessage !== null
+    ) {
+      // postAnd* mode — dispose old message and always post a new one.
+      if (this._lastComponentInteraction) {
+        // Acknowledge the component interaction without editing the message.
+        await this._lastComponentInteraction.deferUpdate();
+        this._lastComponentInteraction = null;
+      }
+      await this.disposeOldMessage(behavior, commandInteraction);
+      const followUpPayload = ephemeral
+        ? this.makeEphemeral(discordPayload)
+        : discordPayload;
+      const newMessage =
+        await commandInteraction.followUp(followUpPayload);
+      this._activeMessage = newMessage as Message;
+      this._activeMessageEphemeral = ephemeral;
+      this._activeMessageIsFollowUp = true;
       this._lastUpdateSource = 'followUp';
     } else if (this._lastComponentInteraction) {
       // We have a component interaction to update
@@ -459,22 +693,171 @@ export class MenuRenderer {
       this._lastComponentInteraction = null;
       this._lastUpdateSource = 'component';
     } else if (this._activeMessage) {
-      // Existing message — edit it
-      await this._activeMessage.edit(discordPayload);
+      // Existing message — edit it.
+      // Ephemeral messages cannot be edited via Message.edit() (REST);
+      // route through the interaction token instead.
+      if (this._activeMessageEphemeral) {
+        await this.editEphemeralMessage(
+          commandInteraction,
+          discordPayload,
+        );
+      } else {
+        await this._activeMessage.edit(discordPayload);
+      }
       this._lastUpdateSource = 'editReply';
     } else {
-      // First render — editReply on the deferred reply
-      const message = await commandInteraction.editReply(discordPayload);
+      // First render — editReply on the deferred reply.
+      // Use _deferEphemeral (the actual state passed to deferReply) if set,
+      // so _activeMessageEphemeral reflects the real Discord message state
+      // rather than definition.ephemeral (which can diverge for async factories).
+      const message =
+        await commandInteraction.editReply(discordPayload);
       this._activeMessage = message as Message;
+      this._activeMessageEphemeral =
+        this._deferEphemeral ?? ephemeral;
+      this._activeMessageIsFollowUp = false;
+      this._deferEphemeral = null;
       this._lastUpdateSource = 'editReply';
     }
 
     this._activeMessageMode = newMode;
   }
 
+  /**
+   * Add MessageFlags.Ephemeral to a payload, preserving any flags already
+   * present (e.g. IsComponentsV2 for layout-mode messages). Discord flags are
+   * a bitmask, so the existing value must be OR-ed rather than replaced.
+   */
+  private makeEphemeral(
+    payload: Record<string, unknown>,
+  ): Record<string, unknown> {
+    const existing =
+      typeof payload.flags === 'number' ? payload.flags : 0;
+    return { ...payload, flags: existing | MessageFlags.Ephemeral };
+  }
+
+  /**
+   * Dispose the current active message according to the resolved cleanup
+   * strategy. Called whenever a new message is about to be posted in its place.
+   *
+   * - postAndStrip: remove interactive components, leave content
+   * - postAndDelete: delete if non-ephemeral; fall back to ephemeralFallbackDisposal
+   *   if the message is ephemeral (Discord does not allow deleting ephemeral messages)
+   * - postAndReplace: replace content with the closedMessage string
+   */
+  private async disposeOldMessage(
+    behavior: Pick<
+      ResolvedBehavior,
+      'messageCleanup' | 'ephemeralFallbackDisposal' | 'closedMessage'
+    >,
+    commandInteraction: ChatInputCommandInteraction,
+  ): Promise<void> {
+    if (!this._activeMessage) return;
+
+    const effectiveCleanup =
+      this._activeMessageEphemeral &&
+      behavior.messageCleanup === 'postAndDelete'
+        ? behavior.ephemeralFallbackDisposal === 'replace'
+          ? 'postAndReplace'
+          : 'postAndStrip'
+        : behavior.messageCleanup;
+
+    // Layout-mode messages have IsComponentsV2 permanently set — edits must
+    // use display-component payloads rather than embed-style ones.
+    const isLayout = this._activeMessageMode === 'layout';
+
+    try {
+      if (effectiveCleanup === 'postAndDelete') {
+        await this.deleteOldMessage();
+      } else if (effectiveCleanup === 'postAndReplace') {
+        const closePayload: Record<string, unknown> = isLayout
+          ? {
+              components: [
+                new TextDisplayBuilder().setContent(
+                  behavior.closedMessage,
+                ),
+              ],
+              embeds: [],
+              content: '',
+              flags: MessageFlags.IsComponentsV2,
+            }
+          : {
+              content: behavior.closedMessage,
+              embeds: [],
+              components: [],
+            };
+        if (this._activeMessageEphemeral) {
+          await this.editEphemeralMessage(
+            commandInteraction,
+            closePayload,
+          );
+        } else {
+          await this._activeMessage.edit(closePayload);
+        }
+        this._activeMessage = null;
+      } else {
+        // stripComponents
+        let stripPayload: Record<string, unknown>;
+        if (
+          isLayout &&
+          this._lastRenderedLayoutComponents &&
+          this._lastRenderedLayoutMenuInstance
+        ) {
+          const stripped = this.stripLayoutInteractives(
+            this._lastRenderedLayoutComponents,
+          );
+          const serialized =
+            stripped.length > 0
+              ? this.serializeLayoutComponents(
+                  stripped,
+                  this._lastRenderedLayoutMenuInstance,
+                )
+              : [
+                  new TextDisplayBuilder().setContent(
+                    behavior.closedMessage,
+                  ),
+                ];
+          stripPayload = {
+            components: serialized,
+            embeds: [],
+            content: '',
+            flags: MessageFlags.IsComponentsV2,
+          };
+        } else if (isLayout) {
+          stripPayload = {
+            components: [
+              new TextDisplayBuilder().setContent(
+                behavior.closedMessage,
+              ),
+            ],
+            embeds: [],
+            content: '',
+            flags: MessageFlags.IsComponentsV2,
+          };
+        } else {
+          stripPayload = { components: [] };
+        }
+        if (this._activeMessageEphemeral) {
+          await this.editEphemeralMessage(
+            commandInteraction,
+            stripPayload,
+          );
+        } else {
+          await this._activeMessage.edit(stripPayload);
+        }
+        this._activeMessage = null;
+      }
+    } catch {
+      // Best-effort — message may have expired
+      this._activeMessage = null;
+    }
+
+    this._lastComponentInteraction = null;
+  }
+
   private buildDiscordPayload(
     payload: RenderPayload,
-    mode: RenderMode
+    mode: RenderMode,
   ): Record<string, unknown> {
     if (mode === 'layout' && payload.layoutComponents) {
       return {
@@ -490,6 +873,31 @@ export class MenuRenderer {
       components: payload.components ?? [],
       content: payload.content ?? '',
     };
+  }
+
+  /**
+   * Edit the current ephemeral message via the appropriate interaction token
+   * endpoint. Ephemeral messages cannot be edited via Message.edit() (REST).
+   *
+   * - Original deferred reply → editReply() targets @original
+   * - FollowUp message → PATCH webhookMessage(id) targets the specific message
+   */
+  private async editEphemeralMessage(
+    commandInteraction: ChatInputCommandInteraction,
+    data: Record<string, unknown>,
+  ): Promise<void> {
+    if (this._activeMessageIsFollowUp && this._activeMessage) {
+      await commandInteraction.client.rest.patch(
+        Routes.webhookMessage(
+          commandInteraction.applicationId,
+          commandInteraction.token,
+          this._activeMessage.id,
+        ),
+        { body: data },
+      );
+    } else {
+      await commandInteraction.editReply(data);
+    }
   }
 
   private async deleteOldMessage(): Promise<void> {
@@ -511,9 +919,10 @@ export class MenuRenderer {
     menuInstance: MenuInstance,
     buttons: ButtonConfig[],
     reservedRow: ActionRowConfig | null,
-    selectConfig?: SelectConfig | null
+    selectConfig?: SelectConfig | null,
   ): ActionRowBuilder<MessageActionRowComponentBuilder>[] {
-    const rows: ActionRowBuilder<MessageActionRowComponentBuilder>[] = [];
+    const rows: ActionRowBuilder<MessageActionRowComponentBuilder>[] =
+      [];
 
     // Build select menu row first (takes a full row)
     if (selectConfig) {
@@ -532,11 +941,12 @@ export class MenuRenderer {
 
     // Build content button rows (max 5 buttons per row)
     const contentButtons = buttons.filter(
-      (b) => !b.id?.startsWith('__reserved')
+      (b) => !b.id?.startsWith('__reserved'),
     );
     for (let i = 0; i < contentButtons.length; i += 5) {
       const chunk = contentButtons.slice(i, i + 5);
-      const row = new ActionRowBuilder<MessageActionRowComponentBuilder>();
+      const row =
+        new ActionRowBuilder<MessageActionRowComponentBuilder>();
       for (let j = 0; j < chunk.length; j++) {
         const btn = chunk[j];
         row.addComponents(this.buildButtonBuilder(btn, menuInstance));
@@ -546,11 +956,12 @@ export class MenuRenderer {
 
     // Build reserved button row
     if (reservedRow) {
-      const row = new ActionRowBuilder<MessageActionRowComponentBuilder>();
+      const row =
+        new ActionRowBuilder<MessageActionRowComponentBuilder>();
       for (const child of reservedRow.children) {
         if (child.type !== 'button') continue;
         const namespacedId = menuInstance.idManager.namespace(
-          child.id ?? '__reserved'
+          child.id ?? '__reserved',
         );
         const builder = new ButtonBuilder()
           .setCustomId(namespacedId)
@@ -569,7 +980,7 @@ export class MenuRenderer {
     menuInstance: MenuInstance,
     hasSelectMenu: boolean,
     ctx: MenuContext,
-    forceReservedRow: boolean
+    forceReservedRow: boolean,
   ): number {
     const canGoBack = ctx.session.canGoBack;
     const hasReservedRow =
@@ -581,10 +992,58 @@ export class MenuRenderer {
     const selectRows = hasSelectMenu ? 1 : 0;
     const availableButtonRows = Math.max(
       1,
-      MenuRenderer.MAX_EMBED_COMPONENT_ROWS - reservedRows - selectRows
+      MenuRenderer.MAX_EMBED_COMPONENT_ROWS -
+        reservedRows -
+        selectRows,
     );
 
     return availableButtonRows * MenuRenderer.MAX_BUTTONS_PER_ROW;
+  }
+
+  // -----------------------------------------------------------------------
+  // Layout strip helper
+  // -----------------------------------------------------------------------
+
+  /**
+   * Walk a layout component tree and strip interactive elements for the
+   * stripComponents disposal payload:
+   *
+   * - action_row → removed (empty Discord v2 action rows are invalid)
+   * - section with button accessory → button is disabled in place
+   *   (removing it entirely would make the section invalid)
+   * - section with thumbnail accessory → kept unchanged
+   * - container → recursed; empty result containers are kept (they can have
+   *   accent colors / spoiler that are still meaningful)
+   * - everything else (text_display, separator, thumbnail, media_gallery,
+   *   file) → kept unchanged
+   */
+  private stripLayoutInteractives(
+    components: ComponentConfig[],
+  ): ComponentConfig[] {
+    const result: ComponentConfig[] = [];
+    for (const component of components) {
+      if (component.type === 'action_row') {
+        // Remove action rows wholesale
+        continue;
+      } else if (component.type === 'section') {
+        if (component.accessory.type === 'button') {
+          result.push({
+            ...component,
+            accessory: { ...component.accessory, disabled: true },
+          });
+        } else {
+          result.push(component);
+        }
+      } else if (component.type === 'container') {
+        result.push({
+          ...component,
+          children: this.stripLayoutInteractives(component.children),
+        });
+      } else {
+        result.push(component);
+      }
+    }
+    return result;
   }
 
   // -----------------------------------------------------------------------
@@ -597,12 +1056,15 @@ export class MenuRenderer {
    */
   private serializeLayoutComponents(
     components: ComponentConfig[],
-    menuInstance: MenuInstance
+    menuInstance: MenuInstance,
   ): unknown[] {
     const result: unknown[] = [];
 
     for (const component of components) {
-      const serialized = this.serializeComponent(component, menuInstance);
+      const serialized = this.serializeComponent(
+        component,
+        menuInstance,
+      );
       if (serialized) {
         result.push(serialized);
       }
@@ -613,7 +1075,7 @@ export class MenuRenderer {
 
   private serializeComponent(
     component: ComponentConfig,
-    menuInstance: MenuInstance
+    menuInstance: MenuInstance,
   ): unknown {
     switch (component.type) {
       case 'text_display':
@@ -637,40 +1099,38 @@ export class MenuRenderer {
     }
   }
 
-  private serializeTextDisplay(config: TextDisplayConfig): TextDisplayBuilder {
+  private serializeTextDisplay(
+    config: TextDisplayConfig,
+  ): TextDisplayBuilder {
     return new TextDisplayBuilder().setContent(config.content);
   }
 
   private serializeSection(
     config: SectionConfig,
-    menuInstance: MenuInstance
+    menuInstance: MenuInstance,
   ): SectionBuilder {
     const builder = new SectionBuilder();
 
     for (const textItem of config.text) {
       if (typeof textItem === 'string') {
         builder.addTextDisplayComponents(
-          new TextDisplayBuilder().setContent(textItem)
+          new TextDisplayBuilder().setContent(textItem),
         );
       } else {
         builder.addTextDisplayComponents(
-          new TextDisplayBuilder().setContent(textItem.content)
+          new TextDisplayBuilder().setContent(textItem.content),
         );
       }
     }
 
-    if (config.accessory) {
-      if (config.accessory.type === 'thumbnail') {
-        builder.setThumbnailAccessory(
-          new ThumbnailBuilder().setURL(config.accessory.url)
-        );
-      } else if (config.accessory.type === 'button') {
-        const buttonBuilder = this.buildButtonBuilder(
-          config.accessory,
-          menuInstance
-        );
-        builder.setButtonAccessory(buttonBuilder);
-      }
+    if (config.accessory.type === 'thumbnail') {
+      builder.setThumbnailAccessory(
+        new ThumbnailBuilder().setURL(config.accessory.url),
+      );
+    } else if (config.accessory.type === 'button') {
+      builder.setButtonAccessory(
+        this.buildButtonBuilder(config.accessory, menuInstance),
+      );
     }
 
     return builder;
@@ -678,7 +1138,7 @@ export class MenuRenderer {
 
   private serializeContainer(
     config: ContainerConfig,
-    menuInstance: MenuInstance
+    menuInstance: MenuInstance,
   ): ContainerBuilder {
     const builder = new ContainerBuilder();
 
@@ -696,7 +1156,9 @@ export class MenuRenderer {
     return builder;
   }
 
-  private serializeSeparator(config: SeparatorConfig): SeparatorBuilder {
+  private serializeSeparator(
+    config: SeparatorConfig,
+  ): SeparatorBuilder {
     const builder = new SeparatorBuilder();
     if (config.divider !== undefined) {
       builder.setDivider(config.divider);
@@ -705,13 +1167,15 @@ export class MenuRenderer {
       builder.setSpacing(
         config.spacing === 'small'
           ? SeparatorSpacingSize.Small
-          : SeparatorSpacingSize.Large
+          : SeparatorSpacingSize.Large,
       );
     }
     return builder;
   }
 
-  private serializeThumbnail(config: ThumbnailConfig): ThumbnailBuilder {
+  private serializeThumbnail(
+    config: ThumbnailConfig,
+  ): ThumbnailBuilder {
     const builder = new ThumbnailBuilder().setURL(config.url);
     if (config.description) {
       builder.setDescription(config.description);
@@ -720,11 +1184,13 @@ export class MenuRenderer {
   }
 
   private serializeMediaGallery(
-    config: MediaGalleryConfig
+    config: MediaGalleryConfig,
   ): MediaGalleryBuilder {
     const builder = new MediaGalleryBuilder();
     for (const item of config.items) {
-      const itemBuilder = new MediaGalleryItemBuilder().setURL(item.url);
+      const itemBuilder = new MediaGalleryItemBuilder().setURL(
+        item.url,
+      );
       if (item.description) {
         itemBuilder.setDescription(item.description);
       }
@@ -744,29 +1210,35 @@ export class MenuRenderer {
   private addToContainer(
     builder: ContainerBuilder,
     child: ComponentConfig,
-    menuInstance: MenuInstance
+    menuInstance: MenuInstance,
   ): void {
     switch (child.type) {
       case 'text_display':
-        builder.addTextDisplayComponents(this.serializeTextDisplay(child));
+        builder.addTextDisplayComponents(
+          this.serializeTextDisplay(child),
+        );
         break;
       case 'section':
         builder.addSectionComponents(
-          this.serializeSection(child, menuInstance)
+          this.serializeSection(child, menuInstance),
         );
         break;
       case 'separator':
-        builder.addSeparatorComponents(this.serializeSeparator(child));
+        builder.addSeparatorComponents(
+          this.serializeSeparator(child),
+        );
         break;
       case 'media_gallery':
-        builder.addMediaGalleryComponents(this.serializeMediaGallery(child));
+        builder.addMediaGalleryComponents(
+          this.serializeMediaGallery(child),
+        );
         break;
       case 'file':
         builder.addFileComponents(this.serializeFile(child));
         break;
       case 'action_row':
         builder.addActionRowComponents(
-          this.serializeActionRow(child, menuInstance)
+          this.serializeActionRow(child, menuInstance),
         );
         break;
       default:
@@ -776,16 +1248,20 @@ export class MenuRenderer {
 
   private serializeActionRow(
     config: ActionRowConfig,
-    menuInstance: MenuInstance
+    menuInstance: MenuInstance,
   ): ActionRowBuilder<MessageActionRowComponentBuilder> {
-    const row = new ActionRowBuilder<MessageActionRowComponentBuilder>();
+    const row =
+      new ActionRowBuilder<MessageActionRowComponentBuilder>();
 
     for (const child of config.children) {
       if (child.type === 'button') {
-        row.addComponents(this.buildButtonBuilder(child, menuInstance));
+        row.addComponents(
+          this.buildButtonBuilder(child, menuInstance),
+        );
       } else if (child.type === 'select') {
         const selectId = child.id ?? '__select';
-        const namespacedId = menuInstance.idManager.namespace(selectId);
+        const namespacedId =
+          menuInstance.idManager.namespace(selectId);
         child.builder.setCustomId(namespacedId);
         row.addComponents(child.builder);
       }
@@ -804,7 +1280,7 @@ export class MenuRenderer {
    */
   private buildButtonBuilder(
     btn: ButtonConfig,
-    menuInstance: MenuInstance
+    menuInstance: MenuInstance,
   ): ButtonBuilder {
     const builder = new ButtonBuilder()
       .setLabel(btn.label)
@@ -815,7 +1291,7 @@ export class MenuRenderer {
       if (!btn.url) {
         throw new Error(
           `[FlowCord] Link button is missing required "url" ` +
-            `(id: ${btn.id ?? 'unknown'}, label: ${btn.label ?? 'unknown'})`
+            `(id: ${btn.id ?? 'unknown'}, label: ${btn.label ?? 'unknown'})`,
         );
       }
       builder.setURL(btn.url);
@@ -839,20 +1315,23 @@ export class MenuRenderer {
    */
   private expandPaginatedGroups(
     components: ComponentConfig[],
-    menuInstance: MenuInstance
+    menuInstance: MenuInstance,
   ): ComponentConfig[] {
     const result: ComponentConfig[] = [];
 
     for (const component of components) {
       if (component.type === 'paginated_group') {
-        const expanded = this.expandPaginatedGroup(component, menuInstance);
+        const expanded = this.expandPaginatedGroup(
+          component,
+          menuInstance,
+        );
         result.push(...expanded);
       } else if (component.type === 'container') {
         result.push({
           ...component,
           children: this.expandPaginatedGroups(
             component.children,
-            menuInstance
+            menuInstance,
           ),
         });
       } else {
@@ -865,12 +1344,16 @@ export class MenuRenderer {
 
   private expandPaginatedGroup(
     group: PaginatedGroupConfig,
-    menuInstance: MenuInstance
+    menuInstance: MenuInstance,
   ): ActionRowConfig[] {
     const allButtons = group.buttons;
     const perPage = group.options?.perPage ?? 25;
-    const totalPages = Math.max(1, Math.ceil(allButtons.length / perPage));
-    const currentPage = menuInstance.paginationState?.currentPage ?? 0;
+    const totalPages = Math.max(
+      1,
+      Math.ceil(allButtons.length / perPage),
+    );
+    const currentPage =
+      menuInstance.paginationState?.currentPage ?? 0;
 
     menuInstance.paginationState = {
       currentPage,
@@ -878,12 +1361,15 @@ export class MenuRenderer {
       itemsPerPage: perPage,
       totalItems: allButtons.length,
       startIndex: currentPage * perPage,
-      endIndex: Math.min((currentPage + 1) * perPage, allButtons.length),
+      endIndex: Math.min(
+        (currentPage + 1) * perPage,
+        allButtons.length,
+      ),
     };
 
     const pageButtons = allButtons.slice(
       menuInstance.paginationState.startIndex,
-      menuInstance.paginationState.endIndex
+      menuInstance.paginationState.endIndex,
     );
 
     // Split into action rows (max 5 per row)
@@ -905,7 +1391,7 @@ export class MenuRenderer {
   buildReservedButtonsOptions(
     menuInstance: MenuInstance,
     mode: RenderMode,
-    ctx?: MenuContext
+    ctx?: MenuContext,
   ): ReservedButtonsOptions {
     const paginationConfig =
       menuInstance.definition.listPagination ??
@@ -936,7 +1422,7 @@ export class MenuRenderer {
    */
   private registerReservedActions(
     menuInstance: MenuInstance,
-    ctx?: MenuContext
+    ctx?: MenuContext,
   ): void {
     // Reserved buttons are handled directly by the session via their IDs.
     // We register placeholder actions so resolveAction returns non-undefined
