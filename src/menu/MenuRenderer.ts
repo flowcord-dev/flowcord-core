@@ -103,15 +103,6 @@ export class MenuRenderer {
     | undefined = undefined;
 
   /**
-   * Pending interaction-type defaults. Set by the session to inject
-   * type-level defaults (e.g. message collection → postNew) below
-   * menuExplicit in the hierarchy. Consumed alongside _pendingInteractionBehavior.
-   */
-  private _pendingInteractionTypeDefaults:
-    | InteractionBehavior
-    | undefined = undefined;
-
-  /**
    * Snapshot of the pre-serialization layout component tree from the last
    * layout render, along with the MenuInstance used to serialize it. Used by
    * stripComponents disposal to produce a v2-compatible payload that preserves
@@ -146,19 +137,6 @@ export class MenuRenderer {
   }
 
   /**
-   * Store the interaction-type defaults for the next render cycle.
-   * These sit below menuExplicit in the hierarchy (e.g. message collection
-   * injects `{ updateMode: 'postNew' }` as a type default so it only applies
-   * when no explicit menu declaration overrides it).
-   * Consumed once by the next render cycle.
-   */
-  setNextInteractionTypeDefaults(
-    defaults: InteractionBehavior | undefined,
-  ): void {
-    this._pendingInteractionTypeDefaults = defaults;
-  }
-
-  /**
    * Consume and return the pending interaction behavior, clearing it so
    * subsequent renders see no override unless set again.
    */
@@ -169,12 +147,18 @@ export class MenuRenderer {
   }
 
   /**
-   * Consume and return the pending interaction-type defaults, clearing them.
+   * Called on navigation to strip display-level interaction behaviors
+   * (ephemeral) from the pending state while preserving cleanup behaviors
+   * (messageCleanup, ephemeralFallbackDisposal, closedMessage, deleteUserMessages).
+   * Cleanup behaviors describe what happens to the departing menu's message and
+   * must survive navigation to be applied when the destination menu renders.
    */
-  consumeInteractionTypeDefaults(): InteractionBehavior | undefined {
-    const d = this._pendingInteractionTypeDefaults;
-    this._pendingInteractionTypeDefaults = undefined;
-    return d;
+  clearDisplayBehaviors(): void {
+    if (!this._pendingInteractionBehavior) return;
+    const { ephemeral: _, ...rest } =
+      this._pendingInteractionBehavior;
+    this._pendingInteractionBehavior =
+      Object.keys(rest).length > 0 ? rest : undefined;
   }
 
   /**

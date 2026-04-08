@@ -581,10 +581,10 @@ export class MenuSession implements MenuSessionLike {
         const outcome = await this.awaitModalInteraction(timeout);
         if (this._isCancelled || this._isCompleted) break;
         if (this._didNavigate) {
-          // Discard interaction behavior — it belongs to the source menu,
-          // not the destination's first render.
-          this._renderer.setNextInteractionBehavior(undefined);
-          this._renderer.setNextInteractionTypeDefaults(undefined);
+          // Strip display-level behaviors (ephemeral) from pending state —
+          // they belong to the source menu. Cleanup behaviors are preserved
+          // so the departing menu's cleanup applies when the destination renders.
+          this._renderer.clearDisplayBehaviors();
           continue;
         }
         if (outcome === 'timeout') break;
@@ -614,10 +614,10 @@ export class MenuSession implements MenuSessionLike {
       // Check exit conditions after interaction
       if (this._isCancelled || this._isCompleted) break;
       if (this._didNavigate) {
-        // Discard interaction behavior — it belongs to the source menu,
-        // not the destination's first render.
-        this._renderer.setNextInteractionBehavior(undefined);
-        this._renderer.setNextInteractionTypeDefaults(undefined);
+        // Strip display-level behaviors (ephemeral) from pending state —
+        // they belong to the source menu. Cleanup behaviors are preserved
+        // so the departing menu's cleanup applies when the destination renders.
+        this._renderer.clearDisplayBehaviors();
         continue;
       }
 
@@ -635,18 +635,17 @@ export class MenuSession implements MenuSessionLike {
     if (!this._currentMenu) return;
 
     // Consume interaction behavior set by the previous interaction.
-    // Both are cleared after consumption so they don't bleed into future renders.
+    // Cleared after consumption so it doesn't bleed into future renders.
+    // Cleanup fields (messageCleanup etc.) come from the departing menu's resolved
+    // state and are already encoded in interactionBehavior at interactionExplicit level.
     const interactionBehavior =
       this._renderer.consumeInteractionBehavior();
-    const interactionTypeDefaults =
-      this._renderer.consumeInteractionTypeDefaults();
 
     const behavior = resolveBehavior(
       this._currentMenu.definition.behavior,
       this._sessionBehavior,
       this._engine.globalBehavior,
       interactionBehavior,
-      interactionTypeDefaults,
     );
 
     const ctx = this.buildContext(this._currentMenu);
@@ -730,11 +729,12 @@ export class MenuSession implements MenuSessionLike {
       const message = collected.first();
       if (!message || !this._currentMenu) return;
 
-      // Resolve effective behavior for message collection, incorporating the
-      // message handler's explicit behavior and the type default (postNew).
+      // Resolve departing cleanup for the current menu. The message-collection
+      // type default ('postAndStrip') sits below menuExplicit, so an explicit
+      // setMessageCleanup() on the menu still wins.
       const messageHandlerBehavior =
         this._currentMenu.definition.messageHandlerBehavior;
-      const effectiveBehavior = resolveBehavior(
+      const departingBehavior = resolveBehavior(
         this._currentMenu.definition.behavior,
         this._sessionBehavior,
         this._engine.globalBehavior,
@@ -745,7 +745,7 @@ export class MenuSession implements MenuSessionLike {
       );
 
       // Delete the user's message if configured to do so (best-effort)
-      if (effectiveBehavior.deleteUserMessages) {
+      if (departingBehavior.deleteUserMessages) {
         try {
           await message.delete();
         } catch {
@@ -753,12 +753,13 @@ export class MenuSession implements MenuSessionLike {
         }
       }
 
-      // Store interaction behavior for the next render cycle.
-      this._renderer.setNextInteractionBehavior(
-        messageHandlerBehavior,
-      );
-      this._renderer.setNextInteractionTypeDefaults({
-        messageCleanup: 'postAndStrip',
+      // Forward resolved cleanup to the next render cycle.
+      // deleteUserMessages has already been actioned; no need to persist it.
+      this._renderer.setNextInteractionBehavior({
+        messageCleanup: departingBehavior.messageCleanup,
+        ephemeralFallbackDisposal:
+          departingBehavior.ephemeralFallbackDisposal,
+        closedMessage: departingBehavior.closedMessage,
       });
       this._renderer.setMessageCollected();
 
@@ -854,10 +855,10 @@ export class MenuSession implements MenuSessionLike {
       result.message !== undefined &&
       this._currentMenu
     ) {
-      // Resolve effective behavior for message collection (same as awaitMessageReply).
+      // Resolve departing cleanup for the current menu (same as awaitMessageReply).
       const messageHandlerBehavior =
         this._currentMenu.definition.messageHandlerBehavior;
-      const effectiveBehavior = resolveBehavior(
+      const departingBehavior = resolveBehavior(
         this._currentMenu.definition.behavior,
         this._sessionBehavior,
         this._engine.globalBehavior,
@@ -867,7 +868,7 @@ export class MenuSession implements MenuSessionLike {
         } satisfies InteractionBehavior,
       );
 
-      if (effectiveBehavior.deleteUserMessages) {
+      if (departingBehavior.deleteUserMessages) {
         try {
           await result.message.delete();
         } catch {
@@ -875,11 +876,13 @@ export class MenuSession implements MenuSessionLike {
         }
       }
 
-      this._renderer.setNextInteractionBehavior(
-        messageHandlerBehavior,
-      );
-      this._renderer.setNextInteractionTypeDefaults({
-        messageCleanup: 'postAndStrip',
+      // Forward resolved cleanup to the next render cycle.
+      // deleteUserMessages has already been actioned; no need to persist it.
+      this._renderer.setNextInteractionBehavior({
+        messageCleanup: departingBehavior.messageCleanup,
+        ephemeralFallbackDisposal:
+          departingBehavior.ephemeralFallbackDisposal,
+        closedMessage: departingBehavior.closedMessage,
       });
       this._renderer.setMessageCollected();
 
@@ -1026,10 +1029,10 @@ export class MenuSession implements MenuSessionLike {
       result.message !== undefined &&
       this._currentMenu
     ) {
-      // Resolve effective behavior for message collection.
+      // Resolve departing cleanup for the current menu.
       const messageHandlerBehavior =
         this._currentMenu.definition.messageHandlerBehavior;
-      const effectiveBehavior = resolveBehavior(
+      const departingBehavior = resolveBehavior(
         this._currentMenu.definition.behavior,
         this._sessionBehavior,
         this._engine.globalBehavior,
@@ -1039,7 +1042,7 @@ export class MenuSession implements MenuSessionLike {
         } satisfies InteractionBehavior,
       );
 
-      if (effectiveBehavior.deleteUserMessages) {
+      if (departingBehavior.deleteUserMessages) {
         try {
           await result.message.delete();
         } catch {
@@ -1047,11 +1050,13 @@ export class MenuSession implements MenuSessionLike {
         }
       }
 
-      this._renderer.setNextInteractionBehavior(
-        messageHandlerBehavior,
-      );
-      this._renderer.setNextInteractionTypeDefaults({
-        messageCleanup: 'postAndStrip',
+      // Forward resolved cleanup to the next render cycle.
+      // deleteUserMessages has already been actioned; no need to persist it.
+      this._renderer.setNextInteractionBehavior({
+        messageCleanup: departingBehavior.messageCleanup,
+        ephemeralFallbackDisposal:
+          departingBehavior.ephemeralFallbackDisposal,
+        closedMessage: departingBehavior.closedMessage,
       });
       this._renderer.setMessageCollected();
       const ctx = this.buildContext(this._currentMenu);
@@ -1134,14 +1139,28 @@ export class MenuSession implements MenuSessionLike {
         this._currentMenu.activeSelect?.onSelect;
       if (!onSelect) return;
 
-      // Store the select's interaction behavior for the next render cycle.
+      // Resolve departing cleanup from the current menu's perspective,
+      // then forward display behaviors (ephemeral) raw and cleanup behaviors resolved.
       const selectConfig =
         this._currentMenu.getSelectConfig(componentId) ??
         this._currentMenu.activeSelect ??
         undefined;
-      this._renderer.setNextInteractionBehavior(
-        selectConfig?.behavior,
+      const selectInteractionConfig = selectConfig?.behavior;
+      const selectDepartingBehavior = resolveBehavior(
+        this._currentMenu.definition.behavior,
+        this._sessionBehavior,
+        this._engine.globalBehavior,
+        selectInteractionConfig,
       );
+      this._renderer.setNextInteractionBehavior({
+        ephemeral: selectInteractionConfig?.ephemeral,
+        messageCleanup: selectDepartingBehavior.messageCleanup,
+        ephemeralFallbackDisposal:
+          selectDepartingBehavior.ephemeralFallbackDisposal,
+        closedMessage: selectDepartingBehavior.closedMessage,
+        deleteUserMessages:
+          selectDepartingBehavior.deleteUserMessages,
+      });
 
       const ctx = this.buildContext(this._currentMenu);
 
@@ -1167,10 +1186,25 @@ export class MenuSession implements MenuSessionLike {
     const action = this._currentMenu.resolveAction(componentId);
     if (!action) return;
 
-    // Store the button's interaction behavior for the next render cycle.
+    // Resolve departing cleanup from the current menu's perspective,
+    // then forward display behaviors (ephemeral) raw and cleanup behaviors resolved.
     const buttonConfig =
       this._currentMenu.getButtonConfig(componentId);
-    this._renderer.setNextInteractionBehavior(buttonConfig?.behavior);
+    const buttonInteractionConfig = buttonConfig?.behavior;
+    const buttonDepartingBehavior = resolveBehavior(
+      this._currentMenu.definition.behavior,
+      this._sessionBehavior,
+      this._engine.globalBehavior,
+      buttonInteractionConfig,
+    );
+    this._renderer.setNextInteractionBehavior({
+      ephemeral: buttonInteractionConfig?.ephemeral,
+      messageCleanup: buttonDepartingBehavior.messageCleanup,
+      ephemeralFallbackDisposal:
+        buttonDepartingBehavior.ephemeralFallbackDisposal,
+      closedMessage: buttonDepartingBehavior.closedMessage,
+      deleteUserMessages: buttonDepartingBehavior.deleteUserMessages,
+    });
 
     const ctx = this.buildContext(this._currentMenu);
 
@@ -1255,8 +1289,23 @@ export class MenuSession implements MenuSessionLike {
     const modalConfig = this._currentMenu.activeModal;
     if (!modalConfig) return;
 
-    // Store the modal's interaction behavior for the next render cycle.
-    this._renderer.setNextInteractionBehavior(modalConfig.behavior);
+    // Resolve departing cleanup from the current menu's perspective,
+    // then forward display behaviors (ephemeral) raw and cleanup behaviors resolved.
+    const modalInteractionConfig = modalConfig.behavior;
+    const modalDepartingBehavior = resolveBehavior(
+      this._currentMenu.definition.behavior,
+      this._sessionBehavior,
+      this._engine.globalBehavior,
+      modalInteractionConfig,
+    );
+    this._renderer.setNextInteractionBehavior({
+      ephemeral: modalInteractionConfig?.ephemeral,
+      messageCleanup: modalDepartingBehavior.messageCleanup,
+      ephemeralFallbackDisposal:
+        modalDepartingBehavior.ephemeralFallbackDisposal,
+      closedMessage: modalDepartingBehavior.closedMessage,
+      deleteUserMessages: modalDepartingBehavior.deleteUserMessages,
+    });
 
     if (!modalConfig.onSubmit) return;
 
