@@ -1,13 +1,14 @@
 /**
- * MenuRenderer — Renders menus to Discord in either embeds or display components mode.
+ * MenuRenderer — Renders menus in either embeds or layout (Components v2) mode.
  *
  * Handles:
  * - Dual rendering modes (embeds vs layout/Components v2)
- * - Mode transitions (followUp + delete on embed ↔ layout switch)
  * - Reserved button injection
  * - Component ID namespacing on output
  * - Pagination expansion (paginatedGroup → action rows)
- * - Message send/edit/update strategies
+ * - Normalization of Discord.js builders to plain API objects
+ *
+ * All I/O (message send/edit/update/disposal) is delegated to FlowCordAdapter.
  */
 import {
   ActionRowBuilder,
@@ -17,18 +18,13 @@ import {
   FileBuilder,
   MediaGalleryBuilder,
   MediaGalleryItemBuilder,
-  MessageFlags,
-  Routes,
   SectionBuilder,
   SeparatorBuilder,
   SeparatorSpacingSize,
   TextDisplayBuilder,
   ThumbnailBuilder,
-  type ChatInputCommandInteraction,
   type EmbedBuilder,
-  type Message,
   type MessageActionRowComponentBuilder,
-  type MessageComponentInteraction,
 } from 'discord.js';
 import type { MenuInstance } from './MenuInstance';
 import type { MenuContext } from '../context/MenuContext';
@@ -58,39 +54,12 @@ import {
   injectReservedButtons,
   type ReservedButtonsOptions,
 } from '../components/reservedButtons';
-
-/**
- * Tracks how the last message was sent so we know the right update strategy.
- */
-type LastUpdateSource =
-  | 'editReply'
-  | 'component'
-  | 'followUp'
-  | 'messageCollect';
+import type { FlowCordAdapter } from '../adapter/FlowCordAdapter';
+import type { NormalizedRenderPayload } from '../adapter/types';
 
 export class MenuRenderer {
   private static readonly MAX_EMBED_COMPONENT_ROWS = 5;
   private static readonly MAX_BUTTONS_PER_ROW = 5;
-
-  private _activeMessage: Message | null = null;
-  private _activeMessageMode: RenderMode | null = null;
-  private _activeMessageEphemeral = false;
-  private _activeMessageIsFollowUp = false;
-  private _lastUpdateSource: LastUpdateSource | null = null;
-
-  /**
-   * The actual ephemeral state used for deferReply — may differ from
-   * definition.ephemeral for async factories where the caller provides the
-   * flag. Set once after deferReply so the first render uses the real state.
-   */
-  private _deferEphemeral: boolean | null = null;
-
-  /** The last component interaction received — used for .update() */
-  private _lastComponentInteraction: MessageComponentInteraction | null =
-    null;
-
-  /** Whether we need to use followUp instead of editReply (after message collection) */
-  private _isReset = false;
 
   /**
    * Pending per-interaction behavior override. Set by the session after a
@@ -101,30 +70,6 @@ export class MenuRenderer {
   private _pendingInteractionBehavior:
     | InteractionBehavior
     | undefined = undefined;
-
-  /**
-   * Snapshot of the pre-serialization layout component tree from the last
-   * layout render, along with the MenuInstance used to serialize it. Used by
-   * stripComponents disposal to produce a v2-compatible payload that preserves
-   * display components and only removes/disables interactive ones.
-   */
-  private _lastRenderedLayoutComponents: ComponentConfig[] | null =
-    null;
-  private _lastRenderedLayoutMenuInstance: MenuInstance | null = null;
-
-  get activeMessageMode(): RenderMode | null {
-    return this._activeMessageMode;
-  }
-
-  /**
-   * Called after message collection so the next render disposes the old
-   * message appropriately. The disposal strategy is determined by the
-   * resolved behavior at render time (which includes any interaction-level
-   * behavior set via setNextInteractionBehavior).
-   */
-  setMessageCollected(): void {
-    this._isReset = true;
-  }
 
   /**
    * Store the per-interaction behavior override from the triggering button,
@@ -161,35 +106,19 @@ export class MenuRenderer {
       Object.keys(rest).length > 0 ? rest : undefined;
   }
 
-  /**
-   * Record the actual ephemeral state used for deferReply.
-   * Called by MenuSession immediately after deferReply so the first render
-   * sets _activeMessageEphemeral to the real Discord message state rather
-   * than definition.ephemeral (which may differ for async factories).
-   */
-  seedDeferEphemeral(ephemeral: boolean): void {
-    this._deferEphemeral = ephemeral;
-  }
-
-  /** Set the latest component interaction for .update() calls. */
-  setLastComponentInteraction(
-    interaction: MessageComponentInteraction,
-  ): void {
-    this._lastComponentInteraction = interaction;
-  }
-
   // -----------------------------------------------------------------------
   // Main render pipeline
   // -----------------------------------------------------------------------
 
   /**
    * Execute a full render cycle for the current menu.
-   * Calls definition setters, builds the payload, and sends/updates the Discord message.
+   * Calls definition setters, normalizes all builders to plain API objects,
+   * and delegates sending to the FlowCordAdapter.
    */
   async render(
     menuInstance: MenuInstance,
     ctx: MenuContext,
-    commandInteraction: ChatInputCommandInteraction,
+    adapter: FlowCordAdapter,
     behavior: ResolvedBehavior,
   ): Promise<void> {
     const definition = menuInstance.definition;
@@ -198,102 +127,15 @@ export class MenuRenderer {
     // Clear and rebuild action registrations
     menuInstance.clearActions();
 
-    let payload: RenderPayload;
+    let payload: NormalizedRenderPayload;
 
     if (newMode === 'embeds') {
-      payload = await this.buildEmbedsRender(menuInstance, ctx);
+      payload = await this.buildEmbedsRender(menuInstance, ctx, behavior);
     } else {
-      payload = await this.buildLayoutRender(menuInstance, ctx);
+      payload = await this.buildLayoutRender(menuInstance, ctx, behavior);
     }
 
-    // Send or update the message based on current state
-    await this.sendPayload(
-      payload,
-      newMode,
-      commandInteraction,
-      behavior,
-    );
-  }
-
-  /**
-   * Send the cancel state — clear components and show cancellation message.
-   */
-  async renderCancelled(
-    commandInteraction: ChatInputCommandInteraction,
-  ): Promise<void> {
-    // Layout-mode messages have the IsComponentsV2 flag permanently set.
-    // Any edit must include the flag and use display components instead of content.
-    const payload: Record<string, unknown> =
-      this._activeMessageMode === 'layout'
-        ? {
-            components: [
-              new TextDisplayBuilder().setContent(
-                '*Command Cancelled*',
-              ),
-            ],
-            embeds: [],
-            content: '',
-            flags: MessageFlags.IsComponentsV2,
-          }
-        : {
-            content: '*Command Cancelled*',
-            embeds: [],
-            components: [],
-          };
-
-    try {
-      if (this._lastComponentInteraction && !this._isReset) {
-        await this._lastComponentInteraction.update(payload);
-      } else if (
-        this._activeMessage &&
-        !this._activeMessageEphemeral
-      ) {
-        await this._activeMessage.edit(payload);
-      } else {
-        await this.editEphemeralMessage(commandInteraction, payload);
-      }
-    } catch {
-      // Best-effort cleanup — interaction may have expired
-    }
-  }
-
-  /**
-   * Send the close state — remove interactive components from the message.
-   */
-  async renderClosed(
-    commandInteraction: ChatInputCommandInteraction,
-  ): Promise<void> {
-    // Layout-mode messages require the IsComponentsV2 flag on all edits.
-    const payload: Record<string, unknown> =
-      this._activeMessageMode === 'layout'
-        ? {
-            components: [
-              new TextDisplayBuilder().setContent(
-                '-# This menu has expired.',
-              ),
-            ],
-            embeds: [],
-            content: '',
-            flags: MessageFlags.IsComponentsV2,
-          }
-        : {
-            components: [],
-          };
-
-    try {
-      if (this._lastComponentInteraction && !this._isReset) {
-        await this._lastComponentInteraction.update(payload);
-      } else if (
-        this._activeMessage &&
-        !this._activeMessageEphemeral
-      ) {
-        await this._activeMessage.edit(payload);
-      } else {
-        await this.editEphemeralMessage(commandInteraction, payload);
-      }
-    } catch {
-      // Best-effort cleanup
-    }
+    await adapter.sendPayload(payload);
   }
 
   // -----------------------------------------------------------------------
@@ -303,7 +145,8 @@ export class MenuRenderer {
   private async buildEmbedsRender(
     menuInstance: MenuInstance,
     ctx: MenuContext,
-  ): Promise<RenderPayload> {
+    behavior: ResolvedBehavior,
+  ): Promise<NormalizedRenderPayload> {
     const definition = menuInstance.definition;
     let embeds: EmbedBuilder[] = [];
     let buttons: ButtonConfig[] = [];
@@ -495,8 +338,15 @@ export class MenuRenderer {
 
     return {
       mode: 'embeds',
-      embeds,
-      components: actionRows,
+      embeds: embeds.map((e) => e.toJSON()),
+      components: actionRows.map((r) => r.toJSON()),
+      behavior: {
+        messageCleanup: behavior.messageCleanup,
+        ephemeral: behavior.ephemeral,
+        ephemeralFallbackDisposal: behavior.ephemeralFallbackDisposal,
+        closedMessage: behavior.closedMessage,
+        deleteUserMessages: behavior.deleteUserMessages,
+      },
     };
   }
 
@@ -507,7 +357,8 @@ export class MenuRenderer {
   private async buildLayoutRender(
     menuInstance: MenuInstance,
     ctx: MenuContext,
-  ): Promise<RenderPayload> {
+    behavior: ResolvedBehavior,
+  ): Promise<NormalizedRenderPayload> {
     const definition = menuInstance.definition;
     let components: ComponentConfig[] = [];
 
@@ -575,340 +426,37 @@ export class MenuRenderer {
       components = injectReservedButtons(components, reservedRow);
     }
 
-    // Snapshot the pre-serialization tree for stripComponents disposal
-    this._lastRenderedLayoutComponents = components;
-    this._lastRenderedLayoutMenuInstance = menuInstance;
-
-    // Convert to Discord.js builders
+    // Serialize full layout tree to plain API objects
     const discordComponents = this.serializeLayoutComponents(
       components,
       menuInstance,
     );
+    const layoutComponents = (
+      discordComponents as Array<{ toJSON(): unknown }>
+    ).map((b) => b.toJSON());
+
+    // Pre-compute stripped layout (interactive elements removed) for postAndStrip disposal
+    const strippedTree = this.stripLayoutInteractives(components);
+    const strippedBuilders =
+      strippedTree.length > 0
+        ? this.serializeLayoutComponents(strippedTree, menuInstance)
+        : [new TextDisplayBuilder().setContent(behavior.closedMessage)];
+    const strippedLayoutComponents = (
+      strippedBuilders as Array<{ toJSON(): unknown }>
+    ).map((b) => b.toJSON());
 
     return {
       mode: 'layout',
-      layoutComponents: discordComponents,
+      layoutComponents: layoutComponents as NormalizedRenderPayload['layoutComponents'],
+      strippedLayoutComponents: strippedLayoutComponents as NormalizedRenderPayload['strippedLayoutComponents'],
+      behavior: {
+        messageCleanup: behavior.messageCleanup,
+        ephemeral: behavior.ephemeral,
+        ephemeralFallbackDisposal: behavior.ephemeralFallbackDisposal,
+        closedMessage: behavior.closedMessage,
+        deleteUserMessages: behavior.deleteUserMessages,
+      },
     };
-  }
-
-  // -----------------------------------------------------------------------
-  // Payload sending
-  // -----------------------------------------------------------------------
-
-  private async sendPayload(
-    payload: RenderPayload,
-    newMode: RenderMode,
-    commandInteraction: ChatInputCommandInteraction,
-    behavior: ResolvedBehavior,
-  ): Promise<void> {
-    const { ephemeral } = behavior;
-    const modeChanged =
-      this._activeMessageMode !== null &&
-      this._activeMessageMode !== newMode;
-    const ephemeralChanged =
-      this._activeMessage !== null &&
-      this._activeMessageEphemeral !== ephemeral;
-
-    const discordPayload = this.buildDiscordPayload(payload, newMode);
-
-    if (ephemeralChanged) {
-      // Ephemeral state changed — dispose old message, send new as followUp.
-      await this.disposeOldMessage(behavior, commandInteraction);
-      const followUpPayload = ephemeral
-        ? this.makeEphemeral(discordPayload)
-        : discordPayload;
-      const newMessage =
-        await commandInteraction.followUp(followUpPayload);
-      this._activeMessage = newMessage as Message;
-      this._activeMessageEphemeral = ephemeral;
-      this._activeMessageIsFollowUp = true;
-      this._lastComponentInteraction = null;
-      this._lastUpdateSource = 'followUp';
-    } else if (modeChanged) {
-      // Mode transition — dispose old message, send new as followUp.
-      await this.disposeOldMessage(behavior, commandInteraction);
-      const followUpPayload = ephemeral
-        ? this.makeEphemeral(discordPayload)
-        : discordPayload;
-      const newMessage =
-        await commandInteraction.followUp(followUpPayload);
-      this._activeMessage = newMessage as Message;
-      this._activeMessageEphemeral = ephemeral;
-      this._activeMessageIsFollowUp = true;
-      this._lastUpdateSource = 'followUp';
-    } else if (this._isReset) {
-      this._isReset = false;
-      if (behavior.messageCleanup !== 'edit') {
-        // postAnd*: dispose the old message and post the updated menu as a followUp.
-        // The resolved behavior already includes any message-handler interaction
-        // behavior (cleanup mode, closedMessage, etc.) so use it directly.
-        await this.disposeOldMessage(behavior, commandInteraction);
-        const followUpPayload = ephemeral
-          ? this.makeEphemeral(discordPayload)
-          : discordPayload;
-        const newMessage =
-          await commandInteraction.followUp(followUpPayload);
-        this._activeMessage = newMessage as Message;
-        this._activeMessageEphemeral = ephemeral;
-        this._activeMessageIsFollowUp = true;
-        this._lastUpdateSource = 'followUp';
-      } else {
-        // edit (default): edit the existing bot message with the updated
-        // state. No disposal, no repost — the menu stays where it is. This is
-        // the right default: after collecting a message the UI is least disruptive
-        // when only the content changes, not the message position.
-        if (this._activeMessageEphemeral) {
-          await this.editEphemeralMessage(
-            commandInteraction,
-            discordPayload,
-          );
-        } else if (this._activeMessage) {
-          await this._activeMessage.edit(discordPayload);
-        }
-        this._lastUpdateSource = 'editReply';
-      }
-    } else if (
-      behavior.messageCleanup !== 'edit' &&
-      this._activeMessage !== null
-    ) {
-      // postAnd* mode — dispose old message and always post a new one.
-      if (this._lastComponentInteraction) {
-        // Acknowledge the component interaction without editing the message.
-        await this._lastComponentInteraction.deferUpdate();
-        this._lastComponentInteraction = null;
-      }
-      await this.disposeOldMessage(behavior, commandInteraction);
-      const followUpPayload = ephemeral
-        ? this.makeEphemeral(discordPayload)
-        : discordPayload;
-      const newMessage =
-        await commandInteraction.followUp(followUpPayload);
-      this._activeMessage = newMessage as Message;
-      this._activeMessageEphemeral = ephemeral;
-      this._activeMessageIsFollowUp = true;
-      this._lastUpdateSource = 'followUp';
-    } else if (this._lastComponentInteraction) {
-      // We have a component interaction to update
-      await this._lastComponentInteraction.update(discordPayload);
-      this._lastComponentInteraction = null;
-      this._lastUpdateSource = 'component';
-    } else if (this._activeMessage) {
-      // Existing message — edit it.
-      // Ephemeral messages cannot be edited via Message.edit() (REST);
-      // route through the interaction token instead.
-      if (this._activeMessageEphemeral) {
-        await this.editEphemeralMessage(
-          commandInteraction,
-          discordPayload,
-        );
-      } else {
-        await this._activeMessage.edit(discordPayload);
-      }
-      this._lastUpdateSource = 'editReply';
-    } else {
-      // First render — editReply on the deferred reply.
-      // Use _deferEphemeral (the actual state passed to deferReply) if set,
-      // so _activeMessageEphemeral reflects the real Discord message state
-      // rather than definition.ephemeral (which can diverge for async factories).
-      const message =
-        await commandInteraction.editReply(discordPayload);
-      this._activeMessage = message as Message;
-      this._activeMessageEphemeral =
-        this._deferEphemeral ?? ephemeral;
-      this._activeMessageIsFollowUp = false;
-      this._deferEphemeral = null;
-      this._lastUpdateSource = 'editReply';
-    }
-
-    this._activeMessageMode = newMode;
-  }
-
-  /**
-   * Add MessageFlags.Ephemeral to a payload, preserving any flags already
-   * present (e.g. IsComponentsV2 for layout-mode messages). Discord flags are
-   * a bitmask, so the existing value must be OR-ed rather than replaced.
-   */
-  private makeEphemeral(
-    payload: Record<string, unknown>,
-  ): Record<string, unknown> {
-    const existing =
-      typeof payload.flags === 'number' ? payload.flags : 0;
-    return { ...payload, flags: existing | MessageFlags.Ephemeral };
-  }
-
-  /**
-   * Dispose the current active message according to the resolved cleanup
-   * strategy. Called whenever a new message is about to be posted in its place.
-   *
-   * - postAndStrip: remove interactive components, leave content
-   * - postAndDelete: delete if non-ephemeral; fall back to ephemeralFallbackDisposal
-   *   if the message is ephemeral (Discord does not allow deleting ephemeral messages)
-   * - postAndReplace: replace content with the closedMessage string
-   */
-  private async disposeOldMessage(
-    behavior: Pick<
-      ResolvedBehavior,
-      'messageCleanup' | 'ephemeralFallbackDisposal' | 'closedMessage'
-    >,
-    commandInteraction: ChatInputCommandInteraction,
-  ): Promise<void> {
-    if (!this._activeMessage) return;
-
-    const effectiveCleanup =
-      this._activeMessageEphemeral &&
-      behavior.messageCleanup === 'postAndDelete'
-        ? behavior.ephemeralFallbackDisposal === 'replace'
-          ? 'postAndReplace'
-          : 'postAndStrip'
-        : behavior.messageCleanup;
-
-    // Layout-mode messages have IsComponentsV2 permanently set — edits must
-    // use display-component payloads rather than embed-style ones.
-    const isLayout = this._activeMessageMode === 'layout';
-
-    try {
-      if (effectiveCleanup === 'postAndDelete') {
-        await this.deleteOldMessage();
-      } else if (effectiveCleanup === 'postAndReplace') {
-        const closePayload: Record<string, unknown> = isLayout
-          ? {
-              components: [
-                new TextDisplayBuilder().setContent(
-                  behavior.closedMessage,
-                ),
-              ],
-              embeds: [],
-              content: '',
-              flags: MessageFlags.IsComponentsV2,
-            }
-          : {
-              content: behavior.closedMessage,
-              embeds: [],
-              components: [],
-            };
-        if (this._activeMessageEphemeral) {
-          await this.editEphemeralMessage(
-            commandInteraction,
-            closePayload,
-          );
-        } else {
-          await this._activeMessage.edit(closePayload);
-        }
-        this._activeMessage = null;
-      } else {
-        // stripComponents
-        let stripPayload: Record<string, unknown>;
-        if (
-          isLayout &&
-          this._lastRenderedLayoutComponents &&
-          this._lastRenderedLayoutMenuInstance
-        ) {
-          const stripped = this.stripLayoutInteractives(
-            this._lastRenderedLayoutComponents,
-          );
-          const serialized =
-            stripped.length > 0
-              ? this.serializeLayoutComponents(
-                  stripped,
-                  this._lastRenderedLayoutMenuInstance,
-                )
-              : [
-                  new TextDisplayBuilder().setContent(
-                    behavior.closedMessage,
-                  ),
-                ];
-          stripPayload = {
-            components: serialized,
-            embeds: [],
-            content: '',
-            flags: MessageFlags.IsComponentsV2,
-          };
-        } else if (isLayout) {
-          stripPayload = {
-            components: [
-              new TextDisplayBuilder().setContent(
-                behavior.closedMessage,
-              ),
-            ],
-            embeds: [],
-            content: '',
-            flags: MessageFlags.IsComponentsV2,
-          };
-        } else {
-          stripPayload = { components: [] };
-        }
-        if (this._activeMessageEphemeral) {
-          await this.editEphemeralMessage(
-            commandInteraction,
-            stripPayload,
-          );
-        } else {
-          await this._activeMessage.edit(stripPayload);
-        }
-        this._activeMessage = null;
-      }
-    } catch {
-      // Best-effort — message may have expired
-      this._activeMessage = null;
-    }
-
-    this._lastComponentInteraction = null;
-  }
-
-  private buildDiscordPayload(
-    payload: RenderPayload,
-    mode: RenderMode,
-  ): Record<string, unknown> {
-    if (mode === 'layout' && payload.layoutComponents) {
-      return {
-        components: payload.layoutComponents,
-        embeds: [],
-        content: '',
-        flags: MessageFlags.IsComponentsV2,
-      };
-    }
-
-    return {
-      embeds: payload.embeds ?? [],
-      components: payload.components ?? [],
-      content: payload.content ?? '',
-    };
-  }
-
-  /**
-   * Edit the current ephemeral message via the appropriate interaction token
-   * endpoint. Ephemeral messages cannot be edited via Message.edit() (REST).
-   *
-   * - Original deferred reply → editReply() targets @original
-   * - FollowUp message → PATCH webhookMessage(id) targets the specific message
-   */
-  private async editEphemeralMessage(
-    commandInteraction: ChatInputCommandInteraction,
-    data: Record<string, unknown>,
-  ): Promise<void> {
-    if (this._activeMessageIsFollowUp && this._activeMessage) {
-      await commandInteraction.client.rest.patch(
-        Routes.webhookMessage(
-          commandInteraction.applicationId,
-          commandInteraction.token,
-          this._activeMessage.id,
-        ),
-        { body: data },
-      );
-    } else {
-      await commandInteraction.editReply(data);
-    }
-  }
-
-  private async deleteOldMessage(): Promise<void> {
-    if (!this._activeMessage) return;
-    try {
-      await this._activeMessage.delete();
-    } catch {
-      // Message may already be deleted
-    }
-    this._activeMessage = null;
-    this._lastComponentInteraction = null;
   }
 
   // -----------------------------------------------------------------------
@@ -1449,14 +997,3 @@ export class MenuRenderer {
   }
 }
 
-// -----------------------------------------------------------------------
-// Internal types
-// -----------------------------------------------------------------------
-
-interface RenderPayload {
-  mode: RenderMode;
-  embeds?: EmbedBuilder[];
-  components?: ActionRowBuilder<MessageActionRowComponentBuilder>[];
-  content?: string;
-  layoutComponents?: unknown[];
-}
