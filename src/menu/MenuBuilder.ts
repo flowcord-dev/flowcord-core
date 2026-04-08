@@ -39,7 +39,11 @@ import type {
   SetButtonsOptions,
 } from '../types/common';
 import type { MenuDefinition } from '../registry/MenuRegistry';
-import type { BehaviorConfig, MenuBehavior } from '../types/behavior';
+import type {
+  BehaviorConfig,
+  InteractionBehavior,
+  MenuBehavior,
+} from '../types/behavior';
 
 // ---------------------------------------------------------------------------
 // Builder class
@@ -83,6 +87,7 @@ export class MenuBuilder<
     ctx: TCtx,
     response: string,
   ) => Awaitable<void>;
+  protected _messageHandlerBehavior?: InteractionBehavior;
 
   // Lifecycle hooks
   protected readonly _hooks: MenuHooks<TCtx> = {};
@@ -250,11 +255,20 @@ export class MenuBuilder<
     return this;
   }
 
-  /** Enable text message input handling. Works in both modes. */
+  /**
+   * Enable text message input handling. Works in both modes.
+   *
+   * @param options.behavior - Per-interaction behavior override applied for the
+   *   render cycle after a message is collected. If not set, the framework
+   *   defaults to `updateMode: 'postNew'` for message collection to avoid
+   *   burying the menu under the user's messages in chat.
+   */
   setMessageHandler(
     fn: (ctx: TCtx, response: string) => Awaitable<void>,
+    options?: { behavior?: InteractionBehavior },
   ): this {
     this._handleMessage = fn;
+    this._messageHandlerBehavior = options?.behavior;
     return this;
   }
 
@@ -312,73 +326,55 @@ export class MenuBuilder<
   }
 
   /**
-   * Set how the menu message is updated after each component interaction.
-   * - 'editInPlace': edit/update the existing message in-place (default)
-   * - 'postNew': dispose the old message and post a new one, keeping the
-   *   active menu at the bottom of the chat log
-   */
-  setUpdateMode(mode: 'editInPlace' | 'postNew'): this {
-    this._behavior = {
-      ...this._behavior,
-      explicit: { ...this._behavior.explicit, updateMode: mode },
-    };
-    return this;
-  }
-
-  /**
-   * Set how the old message is treated when it must be replaced (on
-   * ephemeral-state changes, render-mode changes, updateMode 'postNew',
-   * and after message collection via setMessageHandler).
+   * Set how this menu's message is handled on the next render cycle — whether
+   * triggered by a same-menu interaction or navigation away. Encodes both
+   * whether to post a new message and how to dispose the old one.
    *
-   * The second argument is a discriminated options object — available
-   * options depend on the disposal mode:
-   * - 'delete': accepts `ephemeralFallback` (what to do when the message is
-   *   ephemeral and cannot be deleted), `closedMessage`, and `deleteUserMessages`
-   * - 'replaceWithClosed': accepts `closedMessage` and `deleteUserMessages`
-   * - 'stripComponents': accepts `deleteUserMessages`
+   * - 'edit': edit the existing message in place (default)
+   * - 'postAndStrip': post a new message, strip interactive components from the old one
+   * - 'postAndDelete': post a new message, delete the old one
+   *   Accepts `ephemeralFallback` ('strip' | 'replace') for when the message is
+   *   ephemeral and cannot be deleted (defaults to 'strip').
+   * - 'postAndReplace': post a new message, replace the old one with closedMessage
+   *   Accepts `closedMessage` to override the default '*Menu closed*' string.
+   *
+   * Interaction-level behavior (via the `behavior` field on a button/select/modal)
+   * can override this per render cycle for individual interactions.
    */
-  setOldMessageDisposal(
-    mode: 'delete',
+  setMessageCleanup(mode: 'edit' | 'postAndStrip'): this;
+  setMessageCleanup(
+    mode: 'postAndDelete',
     options?: {
-      ephemeralFallback?: 'stripComponents' | 'replaceWithClosed';
+      ephemeralFallback?: 'strip' | 'replace';
+      /** closedMessage shown when ephemeralFallback is 'replace'. */
       closedMessage?: string;
-      deleteUserMessages?: boolean;
     },
   ): this;
-  setOldMessageDisposal(
-    mode: 'replaceWithClosed',
-    options?: {
-      closedMessage?: string;
-      deleteUserMessages?: boolean;
-    },
+  setMessageCleanup(
+    mode: 'postAndReplace',
+    options?: { closedMessage?: string },
   ): this;
-  setOldMessageDisposal(
-    mode: 'stripComponents',
+  setMessageCleanup(
+    mode:
+      | 'edit'
+      | 'postAndStrip'
+      | 'postAndDelete'
+      | 'postAndReplace',
     options?: {
-      deleteUserMessages?: boolean;
-    },
-  ): this;
-  setOldMessageDisposal(
-    mode: 'stripComponents' | 'delete' | 'replaceWithClosed',
-    options?: {
-      ephemeralFallback?: 'stripComponents' | 'replaceWithClosed';
+      ephemeralFallback?: 'strip' | 'replace';
       closedMessage?: string;
-      deleteUserMessages?: boolean;
     },
   ): this {
     this._behavior = {
       ...this._behavior,
       explicit: {
         ...this._behavior.explicit,
-        oldMessageDisposal: mode,
+        messageCleanup: mode,
         ...(options?.ephemeralFallback !== undefined && {
           ephemeralFallbackDisposal: options.ephemeralFallback,
         }),
         ...(options?.closedMessage !== undefined && {
           closedMessage: options.closedMessage,
-        }),
-        ...(options?.deleteUserMessages !== undefined && {
-          deleteUserMessages: options.deleteUserMessages,
         }),
       },
     };
@@ -614,6 +610,7 @@ export class MenuBuilder<
       handleMessage: this._handleMessage as
         | ((ctx: MenuContext, response: string) => Awaitable<void>)
         | undefined,
+      messageHandlerBehavior: this._messageHandlerBehavior,
       listPagination: this._listPagination as
         | ListPaginationOptions<MenuContext>
         | undefined,

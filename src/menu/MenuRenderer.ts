@@ -32,7 +32,10 @@ import {
 } from 'discord.js';
 import type { MenuInstance } from './MenuInstance';
 import type { MenuContext } from '../context/MenuContext';
-import type { ResolvedBehavior } from '../types/behavior';
+import type {
+  InteractionBehavior,
+  ResolvedBehavior,
+} from '../types/behavior';
 import type {
   ActionRowConfig,
   ButtonConfig,
@@ -90,19 +93,24 @@ export class MenuRenderer {
   private _isReset = false;
 
   /**
-   * Disposal config stored by setMessageCollected(), consumed on the next
-   * sendPayload call when _isReset is true.
+   * Pending per-interaction behavior override. Set by the session after a
+   * button/select/modal/message interaction, consumed by the next render cycle
+   * via consumeInteractionBehavior(). After consumption it is cleared so
+   * subsequent renders see no interaction override.
    */
-  private _pendingDisposalConfig: Pick<
-    ResolvedBehavior,
-    | 'oldMessageDisposal'
-    | 'closedMessage'
-    | 'ephemeralFallbackDisposal'
-  > = {
-    oldMessageDisposal: 'stripComponents',
-    closedMessage: '*Menu closed*',
-    ephemeralFallbackDisposal: 'stripComponents',
-  };
+  private _pendingInteractionBehavior:
+    | InteractionBehavior
+    | undefined = undefined;
+
+  /**
+   * Snapshot of the pre-serialization layout component tree from the last
+   * layout render, along with the MenuInstance used to serialize it. Used by
+   * stripComponents disposal to produce a v2-compatible payload that preserves
+   * display components and only removes/disables interactive ones.
+   */
+  private _lastRenderedLayoutComponents: ComponentConfig[] | null =
+    null;
+  private _lastRenderedLayoutMenuInstance: MenuInstance | null = null;
 
   get activeMessageMode(): RenderMode | null {
     return this._activeMessageMode;
@@ -110,18 +118,47 @@ export class MenuRenderer {
 
   /**
    * Called after message collection so the next render disposes the old
-   * message and posts a new one via followUp.
+   * message appropriately. The disposal strategy is determined by the
+   * resolved behavior at render time (which includes any interaction-level
+   * behavior set via setNextInteractionBehavior).
    */
-  setMessageCollected(
-    config: Pick<
-      ResolvedBehavior,
-      | 'oldMessageDisposal'
-      | 'closedMessage'
-      | 'ephemeralFallbackDisposal'
-    >,
-  ): void {
+  setMessageCollected(): void {
     this._isReset = true;
-    this._pendingDisposalConfig = config;
+  }
+
+  /**
+   * Store the per-interaction behavior override from the triggering button,
+   * select, message handler, or modal. Consumed once by the next render cycle.
+   */
+  setNextInteractionBehavior(
+    behavior: InteractionBehavior | undefined,
+  ): void {
+    this._pendingInteractionBehavior = behavior;
+  }
+
+  /**
+   * Consume and return the pending interaction behavior, clearing it so
+   * subsequent renders see no override unless set again.
+   */
+  consumeInteractionBehavior(): InteractionBehavior | undefined {
+    const b = this._pendingInteractionBehavior;
+    this._pendingInteractionBehavior = undefined;
+    return b;
+  }
+
+  /**
+   * Called on navigation to strip display-level interaction behaviors
+   * (ephemeral) from the pending state while preserving cleanup behaviors
+   * (messageCleanup, ephemeralFallbackDisposal, closedMessage, deleteUserMessages).
+   * Cleanup behaviors describe what happens to the departing menu's message and
+   * must survive navigation to be applied when the destination menu renders.
+   */
+  clearDisplayBehaviors(): void {
+    if (!this._pendingInteractionBehavior) return;
+    const { ephemeral: _, ...rest } =
+      this._pendingInteractionBehavior;
+    this._pendingInteractionBehavior =
+      Object.keys(rest).length > 0 ? rest : undefined;
   }
 
   /**
@@ -538,6 +575,10 @@ export class MenuRenderer {
       components = injectReservedButtons(components, reservedRow);
     }
 
+    // Snapshot the pre-serialization tree for stripComponents disposal
+    this._lastRenderedLayoutComponents = components;
+    this._lastRenderedLayoutMenuInstance = menuInstance;
+
     // Convert to Discord.js builders
     const discordComponents = this.serializeLayoutComponents(
       components,
@@ -597,12 +638,11 @@ export class MenuRenderer {
       this._lastUpdateSource = 'followUp';
     } else if (this._isReset) {
       this._isReset = false;
-      if (behavior.updateMode === 'postNew') {
-        // postNew: dispose the old message and post the updated menu as a followUp.
-        await this.disposeOldMessage(
-          this._pendingDisposalConfig,
-          commandInteraction,
-        );
+      if (behavior.messageCleanup !== 'edit') {
+        // postAnd*: dispose the old message and post the updated menu as a followUp.
+        // The resolved behavior already includes any message-handler interaction
+        // behavior (cleanup mode, closedMessage, etc.) so use it directly.
+        await this.disposeOldMessage(behavior, commandInteraction);
         const followUpPayload = ephemeral
           ? this.makeEphemeral(discordPayload)
           : discordPayload;
@@ -613,7 +653,7 @@ export class MenuRenderer {
         this._activeMessageIsFollowUp = true;
         this._lastUpdateSource = 'followUp';
       } else {
-        // editInPlace (default): edit the existing bot message with the updated
+        // edit (default): edit the existing bot message with the updated
         // state. No disposal, no repost — the menu stays where it is. This is
         // the right default: after collecting a message the UI is least disruptive
         // when only the content changes, not the message position.
@@ -628,10 +668,10 @@ export class MenuRenderer {
         this._lastUpdateSource = 'editReply';
       }
     } else if (
-      behavior.updateMode === 'postNew' &&
+      behavior.messageCleanup !== 'edit' &&
       this._activeMessage !== null
     ) {
-      // postNew mode — dispose old message and always post a new one.
+      // postAnd* mode — dispose old message and always post a new one.
       if (this._lastComponentInteraction) {
         // Acknowledge the component interaction without editing the message.
         await this._lastComponentInteraction.deferUpdate();
@@ -697,40 +737,55 @@ export class MenuRenderer {
   }
 
   /**
-   * Dispose the current active message according to the resolved disposal
+   * Dispose the current active message according to the resolved cleanup
    * strategy. Called whenever a new message is about to be posted in its place.
    *
-   * - stripComponents: remove interactive components, leave content
-   * - delete: delete if non-ephemeral; fall back to ephemeralFallbackDisposal
+   * - postAndStrip: remove interactive components, leave content
+   * - postAndDelete: delete if non-ephemeral; fall back to ephemeralFallbackDisposal
    *   if the message is ephemeral (Discord does not allow deleting ephemeral messages)
-   * - replaceWithClosed: replace content with the closedMessage string
+   * - postAndReplace: replace content with the closedMessage string
    */
   private async disposeOldMessage(
     behavior: Pick<
       ResolvedBehavior,
-      | 'oldMessageDisposal'
-      | 'ephemeralFallbackDisposal'
-      | 'closedMessage'
+      'messageCleanup' | 'ephemeralFallbackDisposal' | 'closedMessage'
     >,
     commandInteraction: ChatInputCommandInteraction,
   ): Promise<void> {
     if (!this._activeMessage) return;
 
-    const disposal = this._activeMessageEphemeral
-      ? behavior.oldMessageDisposal === 'delete'
-        ? behavior.ephemeralFallbackDisposal
-        : behavior.oldMessageDisposal
-      : behavior.oldMessageDisposal;
+    const effectiveCleanup =
+      this._activeMessageEphemeral &&
+      behavior.messageCleanup === 'postAndDelete'
+        ? behavior.ephemeralFallbackDisposal === 'replace'
+          ? 'postAndReplace'
+          : 'postAndStrip'
+        : behavior.messageCleanup;
+
+    // Layout-mode messages have IsComponentsV2 permanently set — edits must
+    // use display-component payloads rather than embed-style ones.
+    const isLayout = this._activeMessageMode === 'layout';
 
     try {
-      if (disposal === 'delete') {
+      if (effectiveCleanup === 'postAndDelete') {
         await this.deleteOldMessage();
-      } else if (disposal === 'replaceWithClosed') {
-        const closePayload = {
-          content: behavior.closedMessage,
-          embeds: [],
-          components: [],
-        };
+      } else if (effectiveCleanup === 'postAndReplace') {
+        const closePayload: Record<string, unknown> = isLayout
+          ? {
+              components: [
+                new TextDisplayBuilder().setContent(
+                  behavior.closedMessage,
+                ),
+              ],
+              embeds: [],
+              content: '',
+              flags: MessageFlags.IsComponentsV2,
+            }
+          : {
+              content: behavior.closedMessage,
+              embeds: [],
+              components: [],
+            };
         if (this._activeMessageEphemeral) {
           await this.editEphemeralMessage(
             commandInteraction,
@@ -742,7 +797,46 @@ export class MenuRenderer {
         this._activeMessage = null;
       } else {
         // stripComponents
-        const stripPayload = { components: [] };
+        let stripPayload: Record<string, unknown>;
+        if (
+          isLayout &&
+          this._lastRenderedLayoutComponents &&
+          this._lastRenderedLayoutMenuInstance
+        ) {
+          const stripped = this.stripLayoutInteractives(
+            this._lastRenderedLayoutComponents,
+          );
+          const serialized =
+            stripped.length > 0
+              ? this.serializeLayoutComponents(
+                  stripped,
+                  this._lastRenderedLayoutMenuInstance,
+                )
+              : [
+                  new TextDisplayBuilder().setContent(
+                    behavior.closedMessage,
+                  ),
+                ];
+          stripPayload = {
+            components: serialized,
+            embeds: [],
+            content: '',
+            flags: MessageFlags.IsComponentsV2,
+          };
+        } else if (isLayout) {
+          stripPayload = {
+            components: [
+              new TextDisplayBuilder().setContent(
+                behavior.closedMessage,
+              ),
+            ],
+            embeds: [],
+            content: '',
+            flags: MessageFlags.IsComponentsV2,
+          };
+        } else {
+          stripPayload = { components: [] };
+        }
         if (this._activeMessageEphemeral) {
           await this.editEphemeralMessage(
             commandInteraction,
@@ -904,6 +998,52 @@ export class MenuRenderer {
     );
 
     return availableButtonRows * MenuRenderer.MAX_BUTTONS_PER_ROW;
+  }
+
+  // -----------------------------------------------------------------------
+  // Layout strip helper
+  // -----------------------------------------------------------------------
+
+  /**
+   * Walk a layout component tree and strip interactive elements for the
+   * stripComponents disposal payload:
+   *
+   * - action_row → removed (empty Discord v2 action rows are invalid)
+   * - section with button accessory → button is disabled in place
+   *   (removing it entirely would make the section invalid)
+   * - section with thumbnail accessory → kept unchanged
+   * - container → recursed; empty result containers are kept (they can have
+   *   accent colors / spoiler that are still meaningful)
+   * - everything else (text_display, separator, thumbnail, media_gallery,
+   *   file) → kept unchanged
+   */
+  private stripLayoutInteractives(
+    components: ComponentConfig[],
+  ): ComponentConfig[] {
+    const result: ComponentConfig[] = [];
+    for (const component of components) {
+      if (component.type === 'action_row') {
+        // Remove action rows wholesale
+        continue;
+      } else if (component.type === 'section') {
+        if (component.accessory.type === 'button') {
+          result.push({
+            ...component,
+            accessory: { ...component.accessory, disabled: true },
+          });
+        } else {
+          result.push(component);
+        }
+      } else if (component.type === 'container') {
+        result.push({
+          ...component,
+          children: this.stripLayoutInteractives(component.children),
+        });
+      } else {
+        result.push(component);
+      }
+    }
+    return result;
   }
 
   // -----------------------------------------------------------------------

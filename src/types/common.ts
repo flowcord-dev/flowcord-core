@@ -12,6 +12,7 @@ import type {
   ModalBuilder,
   ModalSubmitFields,
 } from 'discord.js';
+import type { InteractionBehavior } from './behavior';
 
 type AnySelectMenuBuilder = Exclude<
   MessageActionRowComponentBuilder,
@@ -151,6 +152,13 @@ export interface ButtonConfig<TCtx = MenuContextLike> {
   url?: string;
   /** Used by embed-mode pagination: pin button to start/end across pages */
   fixedPosition?: 'start' | 'end';
+  /**
+   * Per-interaction behavior override. Applied only for the single render
+   * cycle triggered by clicking this button, then reverts to menu/session/global
+   * behavior on the next interaction. Sits above menuExplicit in the hierarchy
+   * but below session and global overrides.
+   */
+  behavior?: InteractionBehavior;
 }
 
 /**
@@ -169,6 +177,12 @@ export interface SelectConfig<TCtx = MenuContextLike> {
   builder: AnySelectMenuBuilder;
   id?: string;
   onSelect?: SelectAction<TCtx>;
+  /**
+   * Per-interaction behavior override. Applied only for the single render
+   * cycle triggered by this select menu, then reverts to menu/session/global
+   * behavior on the next interaction.
+   */
+  behavior?: InteractionBehavior;
 }
 
 /**
@@ -256,6 +270,12 @@ export interface ModalConfig<TCtx = MenuContextLike> {
   id?: string;
   builder: ModalBuilder;
   onSubmit?: (ctx: TCtx, fields: ModalSubmitFields) => Promise<void>;
+  /**
+   * Per-interaction behavior override. Applied only for the single render
+   * cycle after this modal is submitted, then reverts to menu/session/global
+   * behavior on the next interaction.
+   */
+  behavior?: InteractionBehavior;
 }
 
 // ---------------------------------------------------------------------------

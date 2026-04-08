@@ -6,10 +6,9 @@
  *
  * Current behaviors:
  * - ephemeral: whether the menu is visible only to the invoking user
- * - updateMode: whether menus edit in-place or always delete+repost
- * - oldMessageDisposal: how the old message is treated when it must be replaced
- * - ephemeralFallbackDisposal: fallback when disposal is 'delete' but message is ephemeral
- * - closedMessage: the string shown when disposal mode is 'replaceWithClosed'
+ * - messageCleanup: how the current message is handled on the next render cycle
+ * - ephemeralFallbackDisposal: fallback when messageCleanup is 'postAndDelete' but message is ephemeral
+ * - closedMessage: the string shown when messageCleanup is 'postAndReplace'
  * - deleteUserMessages: whether to delete the user's typed message after setMessageHandler collects it
  *
  * Designed for extension: additional behaviors are added as new optional
@@ -23,40 +22,31 @@ export interface BehaviorConfig {
   ephemeral?: boolean;
 
   /**
-   * How the menu message is updated after each component interaction.
-   * - 'editInPlace': edit/update the existing message in-place (default)
-   * - 'postNew': dispose the old message and post a new one, keeping the
-   *   active menu at the bottom of the chat log
+   * How this menu's message is handled on the next render cycle — whether
+   * triggered by a same-menu interaction or navigation away.
+   * - 'edit': edit the existing message in place (default)
+   * - 'postAndDelete': post a new message and delete the old one
+   * - 'postAndStrip': post a new message and strip interactive components from the old one
+   * - 'postAndReplace': post a new message and replace the old one with closedMessage
    */
-  updateMode?: 'editInPlace' | 'postNew';
+  messageCleanup?:
+    | 'edit'
+    | 'postAndDelete'
+    | 'postAndStrip'
+    | 'postAndReplace';
 
   /**
-   * How the old message is treated whenever it must be replaced:
-   * on ephemeral-state changes, render-mode changes, updateMode 'postNew',
-   * and after message collection via setMessageHandler.
-   * - 'stripComponents': remove interactive components, leave content (default)
-   * - 'delete': delete the message if possible; ephemeral messages fall back
-   *   to ephemeralFallbackDisposal
-   * - 'replaceWithClosed': replace content with the closedMessage string
+   * Fallback used when messageCleanup is 'postAndDelete' but the active
+   * message is ephemeral (Discord does not allow bots to delete ephemeral messages).
+   * - 'strip' (default): strip interactive components from the old message
+   * - 'replace': replace the old message with closedMessage
+   * Has no effect when messageCleanup is not 'postAndDelete'.
    */
-  oldMessageDisposal?:
-    | 'stripComponents'
-    | 'delete'
-    | 'replaceWithClosed';
+  ephemeralFallbackDisposal?: 'strip' | 'replace';
 
   /**
-   * Fallback disposal used when oldMessageDisposal is 'delete' but the
-   * active message is ephemeral (Discord does not allow bots to delete
-   * ephemeral messages).
-   * - 'stripComponents' (default)
-   * - 'replaceWithClosed'
-   * Has no effect when oldMessageDisposal is not 'delete'.
-   */
-  ephemeralFallbackDisposal?: 'stripComponents' | 'replaceWithClosed';
-
-  /**
-   * The message content shown when oldMessageDisposal or
-   * ephemeralFallbackDisposal is 'replaceWithClosed'.
+   * The message content shown when messageCleanup is 'postAndReplace' or when
+   * ephemeralFallbackDisposal is 'replace'.
    * Defaults to '*Menu closed*'.
    */
   closedMessage?: string;
@@ -105,17 +95,38 @@ export interface MenuBehavior {
 }
 
 /**
+ * Per-interaction behavior overrides. Applied for the single render cycle
+ * triggered by a specific button, select, message handler, or modal submit.
+ * On the next interaction the behavior resolves from menu/session/global config
+ * as normal unless that interaction also declares an override.
+ *
+ * All fields from BehaviorConfig are permitted, including `ephemeral`.
+ * Setting `ephemeral` here causes that one render cycle to post as ephemeral
+ * (or revert to public), useful for transiently revealing private information
+ * on an otherwise public menu. It does NOT persistently change the menu's
+ * ephemeral state — the initial deferReply ephemeral is still controlled by
+ * setEphemeral() / entryEphemeral only.
+ *
+ * Resolution hierarchy with interaction behaviors included:
+ *   globalOverride → sessionOverride → classOverride
+ *     → interactionExplicit
+ *     → menuExplicit
+ *     → interactionTypeDefault → classDefault → sessionDefault → globalDefault → framework default
+ */
+export type InteractionBehavior = BehaviorConfig;
+
+/**
  * Resolved behavior for a single render cycle.
  * All fields are concrete values — no undefined after resolution.
  */
 export interface ResolvedBehavior {
   ephemeral: boolean;
-  updateMode: 'editInPlace' | 'postNew';
-  oldMessageDisposal:
-    | 'stripComponents'
-    | 'delete'
-    | 'replaceWithClosed';
-  ephemeralFallbackDisposal: 'stripComponents' | 'replaceWithClosed';
+  messageCleanup:
+    | 'edit'
+    | 'postAndDelete'
+    | 'postAndStrip'
+    | 'postAndReplace';
+  ephemeralFallbackDisposal: 'strip' | 'replace';
   closedMessage: string;
   deleteUserMessages: boolean;
 }
@@ -125,12 +136,20 @@ export interface ResolvedBehavior {
  * from highest to lowest priority:
  *
  *   globalOverride → sessionOverride → classOverride
- *     → explicit → classDefault → sessionDefault → globalDefault → framework default
+ *     → interactionExplicit → menuExplicit
+ *     → interactionTypeDefault → classDefault → sessionDefault → globalDefault → framework default
+ *
+ * @param interactionBehavior - Per-interaction override from the button/select/handler/modal config.
+ *   Sits above menuExplicit so a specific interaction can override the menu's own declaration.
+ * @param interactionTypeDefaults - Defaults for this category of interaction (e.g. message handlers
+ *   default to postAndStrip). Sits below menuExplicit so an explicit setMessageCleanup() still wins.
  */
 export function resolveBehavior(
   builderBehavior: MenuBehavior | undefined,
   sessionPolicy: BehaviorPolicy | undefined,
   globalPolicy: BehaviorPolicy | undefined,
+  interactionBehavior?: InteractionBehavior,
+  interactionTypeDefaults?: InteractionBehavior,
 ): ResolvedBehavior {
   return {
     ephemeral: resolveField(
@@ -139,27 +158,26 @@ export function resolveBehavior(
       sessionPolicy,
       globalPolicy,
       false,
+      interactionBehavior,
+      interactionTypeDefaults,
     ),
-    updateMode: resolveField(
-      'updateMode',
+    messageCleanup: resolveField(
+      'messageCleanup',
       builderBehavior,
       sessionPolicy,
       globalPolicy,
-      'editInPlace',
-    ),
-    oldMessageDisposal: resolveField(
-      'oldMessageDisposal',
-      builderBehavior,
-      sessionPolicy,
-      globalPolicy,
-      'stripComponents',
+      'edit',
+      interactionBehavior,
+      interactionTypeDefaults,
     ),
     ephemeralFallbackDisposal: resolveField(
       'ephemeralFallbackDisposal',
       builderBehavior,
       sessionPolicy,
       globalPolicy,
-      'stripComponents',
+      'strip',
+      interactionBehavior,
+      interactionTypeDefaults,
     ),
     closedMessage: resolveField(
       'closedMessage',
@@ -167,6 +185,8 @@ export function resolveBehavior(
       sessionPolicy,
       globalPolicy,
       '*Menu closed*',
+      interactionBehavior,
+      interactionTypeDefaults,
     ),
     deleteUserMessages: resolveField(
       'deleteUserMessages',
@@ -174,6 +194,8 @@ export function resolveBehavior(
       sessionPolicy,
       globalPolicy,
       false,
+      interactionBehavior,
+      interactionTypeDefaults,
     ),
   };
 }
@@ -184,12 +206,16 @@ function resolveField<T>(
   session: BehaviorPolicy | undefined,
   global: BehaviorPolicy | undefined,
   fallback: T,
+  interactionBehavior?: InteractionBehavior,
+  interactionTypeDefaults?: InteractionBehavior,
 ): T {
   return (
     (global?.override?.[key] as T | undefined) ??
     (session?.override?.[key] as T | undefined) ??
     (builder?.classOverride?.[key] as T | undefined) ??
+    (interactionBehavior?.[key] as T | undefined) ??
     (builder?.explicit?.[key] as T | undefined) ??
+    (interactionTypeDefaults?.[key] as T | undefined) ??
     (builder?.classDefault?.[key] as T | undefined) ??
     (session?.default?.[key] as T | undefined) ??
     (global?.default?.[key] as T | undefined) ??
