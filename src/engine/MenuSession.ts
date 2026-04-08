@@ -1112,6 +1112,20 @@ export class MenuSession implements MenuSessionLike {
 
     // --- Reserved button handling ---
     if (componentId === '__reserved_back') {
+      // Resolve and store the departing menu's cleanup behaviors so they are
+      // applied when the destination menu renders (same as custom button dispatch).
+      const backDepartingBehavior = resolveBehavior(
+        this._currentMenu.definition.behavior,
+        this._sessionBehavior,
+        this._engine.globalBehavior,
+      );
+      this._renderer.setNextInteractionBehavior({
+        messageCleanup: backDepartingBehavior.messageCleanup,
+        ephemeralFallbackDisposal:
+          backDepartingBehavior.ephemeralFallbackDisposal,
+        closedMessage: backDepartingBehavior.closedMessage,
+        deleteUserMessages: backDepartingBehavior.deleteUserMessages,
+      });
       await this.goBack(this._completionResult);
       this._completionResult = undefined;
       return;
