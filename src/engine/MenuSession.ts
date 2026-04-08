@@ -739,7 +739,9 @@ export class MenuSession implements MenuSessionLike {
         this._sessionBehavior,
         this._engine.globalBehavior,
         messageHandlerBehavior,
-        { updateMode: 'postNew' } satisfies InteractionBehavior,
+        {
+          messageCleanup: 'postAndStrip',
+        } satisfies InteractionBehavior,
       );
 
       // Delete the user's message if configured to do so (best-effort)
@@ -756,7 +758,7 @@ export class MenuSession implements MenuSessionLike {
         messageHandlerBehavior,
       );
       this._renderer.setNextInteractionTypeDefaults({
-        updateMode: 'postNew',
+        messageCleanup: 'postAndStrip',
       });
       this._renderer.setMessageCollected();
 
@@ -860,7 +862,9 @@ export class MenuSession implements MenuSessionLike {
         this._sessionBehavior,
         this._engine.globalBehavior,
         messageHandlerBehavior,
-        { updateMode: 'postNew' } satisfies InteractionBehavior,
+        {
+          messageCleanup: 'postAndStrip',
+        } satisfies InteractionBehavior,
       );
 
       if (effectiveBehavior.deleteUserMessages) {
@@ -875,7 +879,7 @@ export class MenuSession implements MenuSessionLike {
         messageHandlerBehavior,
       );
       this._renderer.setNextInteractionTypeDefaults({
-        updateMode: 'postNew',
+        messageCleanup: 'postAndStrip',
       });
       this._renderer.setMessageCollected();
 
@@ -1030,7 +1034,9 @@ export class MenuSession implements MenuSessionLike {
         this._sessionBehavior,
         this._engine.globalBehavior,
         messageHandlerBehavior,
-        { updateMode: 'postNew' } satisfies InteractionBehavior,
+        {
+          messageCleanup: 'postAndStrip',
+        } satisfies InteractionBehavior,
       );
 
       if (effectiveBehavior.deleteUserMessages) {
@@ -1045,7 +1051,7 @@ export class MenuSession implements MenuSessionLike {
         messageHandlerBehavior,
       );
       this._renderer.setNextInteractionTypeDefaults({
-        updateMode: 'postNew',
+        messageCleanup: 'postAndStrip',
       });
       this._renderer.setMessageCollected();
       const ctx = this.buildContext(this._currentMenu);

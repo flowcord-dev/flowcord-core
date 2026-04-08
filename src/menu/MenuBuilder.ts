@@ -326,51 +326,42 @@ export class MenuBuilder<
   }
 
   /**
-   * Set how the menu message is updated after each component interaction.
-   * - 'editInPlace': edit/update the existing message in-place (default)
-   * - 'postNew': dispose the old message and post a new one, keeping the
-   *   active menu at the bottom of the chat log
-   */
-  setUpdateMode(mode: 'editInPlace' | 'postNew'): this {
-    this._behavior = {
-      ...this._behavior,
-      explicit: { ...this._behavior.explicit, updateMode: mode },
-    };
-    return this;
-  }
-
-  /**
-   * Set how the old message is treated when it must be replaced (on
-   * ephemeral-state changes, render-mode changes, and updateMode 'postNew').
+   * Set how this menu's message is handled on the next render cycle — whether
+   * triggered by a same-menu interaction or navigation away. Encodes both
+   * whether to post a new message and how to dispose the old one.
    *
-   * The second argument is a discriminated options object — available
-   * options depend on the disposal mode:
-   * - 'delete': accepts `ephemeralFallback` (what to do when the message is
-   *   ephemeral and cannot be deleted) and `closedMessage`
-   * - 'replaceWithClosed': accepts `closedMessage`
-   * - 'stripComponents': no options
+   * - 'edit': edit the existing message in place (default)
+   * - 'postAndStrip': post a new message, strip interactive components from the old one
+   * - 'postAndDelete': post a new message, delete the old one
+   *   Accepts `ephemeralFallback` ('strip' | 'replace') for when the message is
+   *   ephemeral and cannot be deleted (defaults to 'strip').
+   * - 'postAndReplace': post a new message, replace the old one with closedMessage
+   *   Accepts `closedMessage` to override the default '*Menu closed*' string.
    *
-   * To delete the user's typed message after message collection, set
-   * `deleteUserMessages` in the `behavior` option of `setMessageHandler()`.
+   * Interaction-level behavior (via the `behavior` field on a button/select/modal)
+   * can override this per render cycle for individual interactions.
    */
-  setOldMessageDisposal(
-    mode: 'delete',
+  setMessageCleanup(mode: 'edit' | 'postAndStrip'): this;
+  setMessageCleanup(
+    mode: 'postAndDelete',
     options?: {
-      ephemeralFallback?: 'stripComponents' | 'replaceWithClosed';
+      ephemeralFallback?: 'strip' | 'replace';
+      /** closedMessage shown when ephemeralFallback is 'replace'. */
       closedMessage?: string;
     },
   ): this;
-  setOldMessageDisposal(
-    mode: 'replaceWithClosed',
-    options?: {
-      closedMessage?: string;
-    },
+  setMessageCleanup(
+    mode: 'postAndReplace',
+    options?: { closedMessage?: string },
   ): this;
-  setOldMessageDisposal(mode: 'stripComponents'): this;
-  setOldMessageDisposal(
-    mode: 'stripComponents' | 'delete' | 'replaceWithClosed',
+  setMessageCleanup(
+    mode:
+      | 'edit'
+      | 'postAndStrip'
+      | 'postAndDelete'
+      | 'postAndReplace',
     options?: {
-      ephemeralFallback?: 'stripComponents' | 'replaceWithClosed';
+      ephemeralFallback?: 'strip' | 'replace';
       closedMessage?: string;
     },
   ): this {
@@ -378,7 +369,7 @@ export class MenuBuilder<
       ...this._behavior,
       explicit: {
         ...this._behavior.explicit,
-        oldMessageDisposal: mode,
+        messageCleanup: mode,
         ...(options?.ephemeralFallback !== undefined && {
           ephemeralFallbackDisposal: options.ephemeralFallback,
         }),

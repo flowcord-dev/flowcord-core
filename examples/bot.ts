@@ -26,7 +26,7 @@
  *   /showcase  — Example 10: embeds ↔ layout mode transitions
  *   /explorer  — Example 11: layout paginated group (paginatedGroup)
  *   /subclass  — Example 12: ephemeral behavior + subclassing
- *   /behavior  — Example 13: behavior policy settings (updateMode, oldMessageDisposal, deleteUserMessages)
+ *   /behavior  — Example 13: behavior policy settings (setMessageCleanup, deleteUserMessages)
 
  */
 

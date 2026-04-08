@@ -6,10 +6,9 @@
  *
  * Current behaviors:
  * - ephemeral: whether the menu is visible only to the invoking user
- * - updateMode: whether menus edit in-place or always delete+repost
- * - oldMessageDisposal: how the old message is treated when it must be replaced
- * - ephemeralFallbackDisposal: fallback when disposal is 'delete' but message is ephemeral
- * - closedMessage: the string shown when disposal mode is 'replaceWithClosed'
+ * - messageCleanup: how the current message is handled on the next render cycle
+ * - ephemeralFallbackDisposal: fallback when messageCleanup is 'postAndDelete' but message is ephemeral
+ * - closedMessage: the string shown when messageCleanup is 'postAndReplace'
  * - deleteUserMessages: whether to delete the user's typed message after setMessageHandler collects it
  *
  * Designed for extension: additional behaviors are added as new optional
@@ -23,40 +22,31 @@ export interface BehaviorConfig {
   ephemeral?: boolean;
 
   /**
-   * How the menu message is updated after each component interaction.
-   * - 'editInPlace': edit/update the existing message in-place (default)
-   * - 'postNew': dispose the old message and post a new one, keeping the
-   *   active menu at the bottom of the chat log
+   * How this menu's message is handled on the next render cycle — whether
+   * triggered by a same-menu interaction or navigation away.
+   * - 'edit': edit the existing message in place (default)
+   * - 'postAndDelete': post a new message and delete the old one
+   * - 'postAndStrip': post a new message and strip interactive components from the old one
+   * - 'postAndReplace': post a new message and replace the old one with closedMessage
    */
-  updateMode?: 'editInPlace' | 'postNew';
+  messageCleanup?:
+    | 'edit'
+    | 'postAndDelete'
+    | 'postAndStrip'
+    | 'postAndReplace';
 
   /**
-   * How the old message is treated whenever it must be replaced:
-   * on ephemeral-state changes, render-mode changes, updateMode 'postNew',
-   * and after message collection via setMessageHandler.
-   * - 'stripComponents': remove interactive components, leave content (default)
-   * - 'delete': delete the message if possible; ephemeral messages fall back
-   *   to ephemeralFallbackDisposal
-   * - 'replaceWithClosed': replace content with the closedMessage string
+   * Fallback used when messageCleanup is 'postAndDelete' but the active
+   * message is ephemeral (Discord does not allow bots to delete ephemeral messages).
+   * - 'strip' (default): strip interactive components from the old message
+   * - 'replace': replace the old message with closedMessage
+   * Has no effect when messageCleanup is not 'postAndDelete'.
    */
-  oldMessageDisposal?:
-    | 'stripComponents'
-    | 'delete'
-    | 'replaceWithClosed';
+  ephemeralFallbackDisposal?: 'strip' | 'replace';
 
   /**
-   * Fallback disposal used when oldMessageDisposal is 'delete' but the
-   * active message is ephemeral (Discord does not allow bots to delete
-   * ephemeral messages).
-   * - 'stripComponents' (default)
-   * - 'replaceWithClosed'
-   * Has no effect when oldMessageDisposal is not 'delete'.
-   */
-  ephemeralFallbackDisposal?: 'stripComponents' | 'replaceWithClosed';
-
-  /**
-   * The message content shown when oldMessageDisposal or
-   * ephemeralFallbackDisposal is 'replaceWithClosed'.
+   * The message content shown when messageCleanup is 'postAndReplace' or when
+   * ephemeralFallbackDisposal is 'replace'.
    * Defaults to '*Menu closed*'.
    */
   closedMessage?: string;
@@ -131,12 +121,12 @@ export type InteractionBehavior = BehaviorConfig;
  */
 export interface ResolvedBehavior {
   ephemeral: boolean;
-  updateMode: 'editInPlace' | 'postNew';
-  oldMessageDisposal:
-    | 'stripComponents'
-    | 'delete'
-    | 'replaceWithClosed';
-  ephemeralFallbackDisposal: 'stripComponents' | 'replaceWithClosed';
+  messageCleanup:
+    | 'edit'
+    | 'postAndDelete'
+    | 'postAndStrip'
+    | 'postAndReplace';
+  ephemeralFallbackDisposal: 'strip' | 'replace';
   closedMessage: string;
   deleteUserMessages: boolean;
 }
@@ -152,7 +142,7 @@ export interface ResolvedBehavior {
  * @param interactionBehavior - Per-interaction override from the button/select/handler/modal config.
  *   Sits above menuExplicit so a specific interaction can override the menu's own declaration.
  * @param interactionTypeDefaults - Defaults for this category of interaction (e.g. message handlers
- *   default to postNew). Sits below menuExplicit so an explicit setUpdateMode() still wins.
+ *   default to postAndStrip). Sits below menuExplicit so an explicit setMessageCleanup() still wins.
  */
 export function resolveBehavior(
   builderBehavior: MenuBehavior | undefined,
@@ -171,21 +161,12 @@ export function resolveBehavior(
       interactionBehavior,
       interactionTypeDefaults,
     ),
-    updateMode: resolveField(
-      'updateMode',
+    messageCleanup: resolveField(
+      'messageCleanup',
       builderBehavior,
       sessionPolicy,
       globalPolicy,
-      'editInPlace',
-      interactionBehavior,
-      interactionTypeDefaults,
-    ),
-    oldMessageDisposal: resolveField(
-      'oldMessageDisposal',
-      builderBehavior,
-      sessionPolicy,
-      globalPolicy,
-      'stripComponents',
+      'edit',
       interactionBehavior,
       interactionTypeDefaults,
     ),
@@ -194,7 +175,7 @@ export function resolveBehavior(
       builderBehavior,
       sessionPolicy,
       globalPolicy,
-      'stripComponents',
+      'strip',
       interactionBehavior,
       interactionTypeDefaults,
     ),
