@@ -292,7 +292,12 @@ export class DiscordAdapter implements FlowCordAdapter {
             };
 
     try {
-      if (this._lastComponentInteraction && !this._isReset) {
+      if (
+        this._lastComponentInteraction &&
+        !this._lastComponentInteraction.deferred &&
+        !this._lastComponentInteraction.replied &&
+        !this._isReset
+      ) {
         await this._lastComponentInteraction.update(
           discordPayload as Parameters<MessageComponentInteraction['update']>[0],
         );
