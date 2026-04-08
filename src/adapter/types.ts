@@ -59,6 +59,12 @@ export interface NormalizedRenderPayload {
   components?: APIActionRowComponent<APIComponentInMessageActionRow>[];
   /** Layout mode — serialized Components v2 top-level components */
   layoutComponents?: APIMessageComponent[];
+  /**
+   * Layout mode — pre-computed stripped version of layoutComponents with
+   * interactive elements removed. Stored by DiscordAdapter for use in
+   * postAndStrip disposal on the next render cycle.
+   */
+  strippedLayoutComponents?: APIMessageComponent[];
   /** Resolved behavior for this render cycle */
   behavior: NormalizedRenderBehavior;
 }
