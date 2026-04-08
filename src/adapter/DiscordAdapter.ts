@@ -56,6 +56,8 @@ export class DiscordAdapter implements FlowCordAdapter {
   private _lastComponentInteraction: MessageComponentInteraction | null = null;
   private _isReset = false;
   private _deferEphemeral: boolean | null = null;
+  /** Stored from last layout render for postAndStrip disposal */
+  private _lastStrippedLayoutComponents: unknown[] | null = null;
 
   constructor(interaction: ChatInputCommandInteraction) {
     this._commandInteraction = interaction;
@@ -73,6 +75,13 @@ export class DiscordAdapter implements FlowCordAdapter {
   }
 
   async sendPayload(payload: NormalizedRenderPayload): Promise<void> {
+    // Store the pre-computed stripped layout components for postAndStrip disposal
+    if (payload.strippedLayoutComponents !== undefined) {
+      this._lastStrippedLayoutComponents = payload.strippedLayoutComponents;
+    } else if (payload.mode !== 'layout') {
+      this._lastStrippedLayoutComponents = null;
+    }
+
     const { behavior, mode: newMode } = payload;
     const { ephemeral } = behavior;
 
@@ -139,7 +148,11 @@ export class DiscordAdapter implements FlowCordAdapter {
       this._activeMessageEphemeral = ephemeral;
       this._activeMessageIsFollowUp = true;
       this._lastUpdateSource = 'followUp';
-    } else if (this._lastComponentInteraction) {
+    } else if (
+      this._lastComponentInteraction &&
+      !this._lastComponentInteraction.deferred &&
+      !this._lastComponentInteraction.replied
+    ) {
       await this._lastComponentInteraction.update(discordPayload);
       this._lastComponentInteraction = null;
       this._lastUpdateSource = 'component';
@@ -224,8 +237,9 @@ export class DiscordAdapter implements FlowCordAdapter {
     modal: NormalizedModal,
     triggerInteraction: NormalizedComponentInteraction,
   ): Promise<void> {
+    // Store the trigger interaction so awaitModal can call awaitModalSubmit on it.
+    this._pendingModalInteraction = triggerInteraction.raw;
     // showModal must be called on the raw (non-deferred) interaction.
-    // The trigger interaction's raw object holds the actual Discord interaction.
     await triggerInteraction.raw.showModal(modal);
     // Clear last component interaction — the modal now owns the pending state.
     this._lastComponentInteraction = null;
@@ -422,16 +436,22 @@ export class DiscordAdapter implements FlowCordAdapter {
         this._activeMessage = null;
       } else {
         // postAndStrip
-        const stripPayload: Record<string, unknown> = isLayout
-          ? {
-              components: [
-                new TextDisplayBuilder().setContent(behavior.closedMessage),
-              ],
-              embeds: [],
-              content: '',
-              flags: MessageFlags.IsComponentsV2,
-            }
-          : { components: [] };
+        let stripPayload: Record<string, unknown>;
+        if (isLayout) {
+          const strippedComponents =
+            this._lastStrippedLayoutComponents &&
+            this._lastStrippedLayoutComponents.length > 0
+              ? this._lastStrippedLayoutComponents
+              : [new TextDisplayBuilder().setContent(behavior.closedMessage)];
+          stripPayload = {
+            components: strippedComponents,
+            embeds: [],
+            content: '',
+            flags: MessageFlags.IsComponentsV2,
+          };
+        } else {
+          stripPayload = { components: [] };
+        }
 
         if (this._activeMessageEphemeral) {
           await this._editEphemeralMessage(stripPayload);

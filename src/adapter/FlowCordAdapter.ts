@@ -19,8 +19,15 @@ import type {
   NormalizedRenderPayload,
   NormalizedTerminalPayload,
 } from './types';
+import type { RenderMode } from '../types/common';
 
 export interface FlowCordAdapter {
+  /**
+   * The render mode of the currently active message, or null if no message
+   * has been sent yet. Used by MenuSession to determine the correct terminal
+   * payload mode (embeds vs layout) on close/cancel.
+   */
+  readonly activeMessageMode: RenderMode | null;
   /**
    * Defer the initial slash command reply.
    * Called once at session start before any rendering.

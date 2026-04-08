@@ -8,11 +8,9 @@
  */
 import { randomUUID } from 'crypto';
 import {
-  MessageFlags,
   type ChatInputCommandInteraction,
   type Client,
   type Interaction,
-  type Message,
   type MessageComponentInteraction,
   type ModalSubmitInteraction,
 } from 'discord.js';
@@ -38,6 +36,9 @@ import {
 } from '../types/behavior';
 import type { HandleInteractionOptions } from './MenuEngine';
 import type { MenuEngine } from './MenuEngine';
+import type { FlowCordAdapter } from '../adapter/FlowCordAdapter';
+import { DiscordAdapter } from '../adapter/DiscordAdapter';
+import type { NormalizedComponentInteraction } from '../adapter/types';
 
 /**
  * Returns true if a factory function is declared async.
@@ -64,6 +65,7 @@ export class MenuSession implements MenuSessionLike {
 
   private readonly _engine: MenuEngine;
   private readonly _commandInteraction: ChatInputCommandInteraction;
+  private readonly _adapter: FlowCordAdapter;
   private readonly _stack: MenuStack;
   private readonly _renderer: MenuRenderer;
   private readonly _lifecycleManager: LifecycleManager;
@@ -86,13 +88,6 @@ export class MenuSession implements MenuSessionLike {
    */
   private _didHardRefresh = false;
 
-  /**
-   * The component interaction that showed a modal via showModal().
-   * Kept so awaitModalInteraction can call awaitModalSubmit on it.
-   */
-  private _modalShowInteraction: MessageComponentInteraction | null =
-    null;
-
   /** Pending continuations for sub-menu completion. */
   private readonly _continuations: Continuation[] = [];
 
@@ -111,11 +106,13 @@ export class MenuSession implements MenuSessionLike {
   constructor(
     engine: MenuEngine,
     interaction: ChatInputCommandInteraction,
+    adapter?: FlowCordAdapter,
   ) {
     this.id = randomUUID().slice(0, 12);
     this.sessionState = new StateStore();
     this._engine = engine;
     this._commandInteraction = interaction;
+    this._adapter = adapter ?? new DiscordAdapter(interaction);
     this._stack = new MenuStack();
     this._renderer = new MenuRenderer();
     this._lifecycleManager = new LifecycleManager();
@@ -192,10 +189,7 @@ export class MenuSession implements MenuSessionLike {
         this._sessionBehavior,
         this._engine.globalBehavior,
       );
-      await this._commandInteraction.deferReply(
-        behavior.ephemeral ? { flags: MessageFlags.Ephemeral } : {},
-      );
-      this._renderer.seedDeferEphemeral(behavior.ephemeral);
+      await this._adapter.deferReply({ ephemeral: behavior.ephemeral });
       await this.navigateTo(menuName, options);
     } else {
       // Sync factory: run it first so setEphemeral() on the builder is read,
@@ -216,10 +210,7 @@ export class MenuSession implements MenuSessionLike {
         this._sessionBehavior,
         this._engine.globalBehavior,
       );
-      await this._commandInteraction.deferReply(
-        behavior.ephemeral ? { flags: MessageFlags.Ephemeral } : {},
-      );
-      this._renderer.seedDeferEphemeral(behavior.ephemeral);
+      await this._adapter.deferReply({ ephemeral: behavior.ephemeral });
       // Replicate the initial navigateTo steps (no previous menu to leave)
       this._currentOptions = options;
       const instance = new MenuInstance(definition, this.id);
@@ -442,7 +433,16 @@ export class MenuSession implements MenuSessionLike {
         this._currentMenu.definition.hooks,
       );
     }
-    await this._renderer.renderClosed(this._commandInteraction);
+    const closeBehavior = resolveBehavior(
+      this._currentMenu?.definition.behavior,
+      this._sessionBehavior,
+      this._engine.globalBehavior,
+    );
+    await this._adapter.sendTerminalPayload({
+      reason: 'closed',
+      content: closeBehavior.closedMessage,
+      mode: this._adapter.activeMessageMode ?? 'embeds',
+    });
     this._isCompleted = true;
   }
 
@@ -463,7 +463,16 @@ export class MenuSession implements MenuSessionLike {
         this._currentMenu.definition.hooks,
       );
     }
-    await this._renderer.renderCancelled(this._commandInteraction);
+    const cancelBehavior = resolveBehavior(
+      this._currentMenu?.definition.behavior,
+      this._sessionBehavior,
+      this._engine.globalBehavior,
+    );
+    await this._adapter.sendTerminalPayload({
+      reason: 'cancelled',
+      content: cancelBehavior.closedMessage,
+      mode: this._adapter.activeMessageMode ?? 'embeds',
+    });
     this._isCancelled = true;
   }
 
@@ -661,7 +670,7 @@ export class MenuSession implements MenuSessionLike {
     await this._renderer.render(
       this._currentMenu,
       ctx,
-      this._commandInteraction,
+      this._adapter,
       behavior,
     );
 
@@ -683,18 +692,14 @@ export class MenuSession implements MenuSessionLike {
   private async awaitComponentInteraction(
     timeout: number,
   ): Promise<void> {
-    if (!this._renderer['_activeMessage']) return;
+    if (!this._adapter.activeMessageMode) return;
 
     try {
-      const interaction = await this._renderer[
-        '_activeMessage'
-      ].awaitMessageComponent({
-        filter: (i) => i.user.id === this._commandInteraction.user.id,
-        time: timeout,
+      const normalized = await this._adapter.awaitComponent({
+        userId: this._commandInteraction.user.id,
+        timeout,
       });
-
-      this._renderer.setLastComponentInteraction(interaction);
-      await this.handleComponentInteraction(interaction);
+      await this.handleComponentInteraction(normalized.raw);
     } catch (error) {
       // awaitMessageComponent rejects on timeout with a specific collector error.
       // Re-throw real errors so they aren't silently swallowed.
@@ -714,20 +719,13 @@ export class MenuSession implements MenuSessionLike {
    * Await a text message reply.
    */
   private async awaitMessageReply(timeout: number): Promise<void> {
-    const channel = this._commandInteraction.channel;
-    if (!channel || !('awaitMessages' in channel)) return;
-
     try {
-      const collected = await channel.awaitMessages({
-        filter: (msg) =>
-          msg.author.id === this._commandInteraction.user.id,
-        max: 1,
-        time: timeout,
-        errors: ['time'],
+      const normalizedMsg = await this._adapter.awaitMessage({
+        userId: this._commandInteraction.user.id,
+        timeout,
       });
 
-      const message = collected.first();
-      if (!message || !this._currentMenu) return;
+      if (!this._currentMenu) return;
 
       // Resolve departing cleanup for the current menu. The message-collection
       // type default ('postAndStrip') sits below menuExplicit, so an explicit
@@ -746,11 +744,7 @@ export class MenuSession implements MenuSessionLike {
 
       // Delete the user's message if configured to do so (best-effort)
       if (departingBehavior.deleteUserMessages) {
-        try {
-          await message.delete();
-        } catch {
-          // May not have permissions
-        }
+        await normalizedMsg.delete();
       }
 
       // Forward resolved cleanup to the next render cycle.
@@ -761,13 +755,12 @@ export class MenuSession implements MenuSessionLike {
           departingBehavior.ephemeralFallbackDisposal,
         closedMessage: departingBehavior.closedMessage,
       });
-      this._renderer.setMessageCollected();
 
       const ctx = this.buildContext(this._currentMenu);
       if (this._currentMenu.definition.handleMessage) {
         await this._currentMenu.definition.handleMessage(
           ctx,
-          message.content,
+          normalizedMsg.content,
         );
       }
     } catch {
@@ -778,83 +771,32 @@ export class MenuSession implements MenuSessionLike {
 
   /**
    * Await either a component interaction or a message reply (mixed mode).
-   * Races both collectors — first to resolve wins.
+   * Races both collectors via the adapter — first to resolve wins.
    */
   private async awaitMixedInteraction(
     timeout: number,
   ): Promise<void> {
-    const channel = this._commandInteraction.channel;
-    const activeMessage = this._renderer[
-      '_activeMessage'
-    ] as Message | null;
-    if (!channel || !('awaitMessages' in channel) || !activeMessage)
-      return;
+    if (!this._adapter.activeMessageMode) return;
 
     const userId = this._commandInteraction.user.id;
 
-    const result = await new Promise<{
-      type: 'component' | 'message';
-      message?: Message;
-      interaction?: MessageComponentInteraction;
-    }>((resolve, reject) => {
-      let settled = false;
-      let failCount = 0;
-      const totalListeners = 2;
-
-      const onFail = () => {
-        failCount++;
-        if (failCount >= totalListeners) {
-          reject(new Error('timeout'));
-        }
-      };
-
-      // Component listener
-      activeMessage
-        .awaitMessageComponent({
-          filter: (i) => i.user.id === userId,
-          time: timeout,
-        })
-        .then((interaction) => {
-          if (settled) return;
-          settled = true;
-          resolve({ type: 'component', interaction });
-        })
-        .catch(() => {
-          if (!settled) onFail();
-        });
-
-      // Message listener
-      channel
-        .awaitMessages({
-          filter: (msg) => msg.author.id === userId,
-          max: 1,
-          time: timeout,
-          errors: ['time'],
-        })
-        .then((collected) => {
-          if (settled) return;
-          settled = true;
-          const msg = collected.first();
-          resolve({ type: 'message', message: msg });
-        })
-        .catch(() => {
-          if (!settled) onFail();
-        });
-    }).catch(() => null);
+    const result = await Promise.race([
+      this._adapter
+        .awaitComponent({ userId, timeout })
+        .then((i) => ({ type: 'component' as const, normalized: i })),
+      this._adapter
+        .awaitMessage({ userId, timeout })
+        .then((m) => ({ type: 'message' as const, normalizedMsg: m })),
+    ]).catch(() => null);
 
     if (!result) {
       this._isCompleted = true;
       return;
     }
 
-    if (result.type === 'component' && result.interaction) {
-      this._renderer.setLastComponentInteraction(result.interaction);
-      await this.handleComponentInteraction(result.interaction);
-    } else if (
-      result.type === 'message' &&
-      result.message !== undefined &&
-      this._currentMenu
-    ) {
+    if (result.type === 'component') {
+      await this.handleComponentInteraction(result.normalized.raw);
+    } else if (result.type === 'message' && this._currentMenu) {
       // Resolve departing cleanup for the current menu (same as awaitMessageReply).
       const messageHandlerBehavior =
         this._currentMenu.definition.messageHandlerBehavior;
@@ -869,11 +811,7 @@ export class MenuSession implements MenuSessionLike {
       );
 
       if (departingBehavior.deleteUserMessages) {
-        try {
-          await result.message.delete();
-        } catch {
-          // May not have permissions
-        }
+        await result.normalizedMsg.delete();
       }
 
       // Forward resolved cleanup to the next render cycle.
@@ -884,13 +822,12 @@ export class MenuSession implements MenuSessionLike {
           departingBehavior.ephemeralFallbackDisposal,
         closedMessage: departingBehavior.closedMessage,
       });
-      this._renderer.setMessageCollected();
 
       const ctx = this.buildContext(this._currentMenu);
       if (this._currentMenu.definition.handleMessage) {
         await this._currentMenu.definition.handleMessage(
           ctx,
-          result.message.content,
+          result.normalizedMsg.content,
         );
       }
     }
@@ -906,127 +843,57 @@ export class MenuSession implements MenuSessionLike {
     if (!this._currentMenu) return 'timeout';
 
     const userId = this._commandInteraction.user.id;
-    const channel = this._commandInteraction.channel;
-    const activeMessage = this._renderer[
-      '_activeMessage'
-    ] as Message | null;
     const responseType = this._currentMenu.getResponseType();
 
-    const result = await new Promise<{
+    // Build the race contestants. Modal is always included.
+    const racers: Promise<{
       type: 'modal' | 'component' | 'message';
-      modalInteraction?: ModalSubmitInteraction;
-      componentInteraction?: MessageComponentInteraction;
-      message?: Message;
-    }>((resolve, reject) => {
-      let settled = false;
-      let failCount = 0;
-      let listenerCount = 1; // modal always
+      raw?: ModalSubmitInteraction;
+      normalized?: NormalizedComponentInteraction;
+      normalizedMsg?: Awaited<ReturnType<FlowCordAdapter['awaitMessage']>>;
+    }>[] = [
+      this._adapter
+        .awaitModal({ userId, timeout })
+        .then((sub) => ({ type: 'modal' as const, raw: sub.raw })),
+    ];
 
-      const onFail = () => {
-        failCount++;
-        if (failCount >= listenerCount) {
-          reject(new Error('timeout'));
-        }
-      };
+    if (
+      this._adapter.activeMessageMode &&
+      (responseType === 'component' || responseType === 'mixed')
+    ) {
+      racers.push(
+        this._adapter
+          .awaitComponent({ userId, timeout })
+          .then((i) => ({ type: 'component' as const, normalized: i })),
+      );
+    }
 
-      // Modal submit listener (uses the interaction that called showModal)
-      const modalInteractionRef = this._modalShowInteraction;
-      if (modalInteractionRef) {
-        modalInteractionRef
-          .awaitModalSubmit({
-            filter: (i: ModalSubmitInteraction) =>
-              i.user.id === userId,
-            time: timeout,
-          })
-          .then((modalInteraction: ModalSubmitInteraction) => {
-            if (settled) return;
-            settled = true;
-            resolve({ type: 'modal', modalInteraction });
-          })
-          .catch(() => {
-            if (!settled) onFail();
-          });
-      }
+    if (responseType === 'message' || responseType === 'mixed') {
+      racers.push(
+        this._adapter
+          .awaitMessage({ userId, timeout })
+          .then((m) => ({ type: 'message' as const, normalizedMsg: m })),
+      );
+    }
 
-      // Component listener (if menu has components)
-      if (
-        activeMessage &&
-        (responseType === 'component' || responseType === 'mixed')
-      ) {
-        listenerCount++;
-        activeMessage
-          .awaitMessageComponent({
-            filter: (i) => i.user.id === userId,
-            time: timeout,
-          })
-          .then((interaction) => {
-            if (settled) return;
-            settled = true;
-            resolve({
-              type: 'component',
-              componentInteraction: interaction,
-            });
-          })
-          .catch(() => {
-            if (!settled) onFail();
-          });
-      }
-
-      // Message listener (if menu has message handler)
-      if (
-        channel &&
-        'awaitMessages' in channel &&
-        (responseType === 'message' || responseType === 'mixed')
-      ) {
-        listenerCount++;
-        channel
-          .awaitMessages({
-            filter: (msg) => msg.author.id === userId,
-            max: 1,
-            time: timeout,
-            errors: ['time'],
-          })
-          .then((collected) => {
-            if (settled) return;
-            settled = true;
-            const msg = collected.first();
-            resolve({
-              type: 'message',
-              message: msg,
-            });
-          })
-          .catch(() => {
-            if (!settled) onFail();
-          });
-      }
-    }).catch(() => null);
-
-    if (!result) return 'timeout';
+    const result = await Promise.race(racers).catch(() => null);
 
     // Clear modal state
-    this._modalShowInteraction = null;
     if (this._currentMenu) {
       this._currentMenu.isModalActive = false;
     }
 
-    if (result.type === 'modal' && result.modalInteraction) {
-      // Handle modal submission
-      await this.handleModalSubmit(result.modalInteraction);
+    if (!result) return 'timeout';
+
+    if (result.type === 'modal' && result.raw) {
+      await this.handleModalSubmit(result.raw);
       return 'modal';
-    } else if (
-      result.type === 'component' &&
-      result.componentInteraction
-    ) {
-      this._renderer.setLastComponentInteraction(
-        result.componentInteraction,
-      );
-      await this.handleComponentInteraction(
-        result.componentInteraction,
-      );
+    } else if (result.type === 'component' && result.normalized) {
+      await this.handleComponentInteraction(result.normalized.raw);
       return 'component';
     } else if (
       result.type === 'message' &&
-      result.message !== undefined &&
+      result.normalizedMsg &&
       this._currentMenu
     ) {
       // Resolve departing cleanup for the current menu.
@@ -1043,11 +910,7 @@ export class MenuSession implements MenuSessionLike {
       );
 
       if (departingBehavior.deleteUserMessages) {
-        try {
-          await result.message.delete();
-        } catch {
-          // May not have permissions
-        }
+        await result.normalizedMsg.delete();
       }
 
       // Forward resolved cleanup to the next render cycle.
@@ -1058,12 +921,12 @@ export class MenuSession implements MenuSessionLike {
           departingBehavior.ephemeralFallbackDisposal,
         closedMessage: departingBehavior.closedMessage,
       });
-      this._renderer.setMessageCollected();
+
       const ctx = this.buildContext(this._currentMenu);
       if (this._currentMenu.definition.handleMessage) {
         await this._currentMenu.definition.handleMessage(
           ctx,
-          result.message.content,
+          result.normalizedMsg.content,
         );
       }
       return 'message';
@@ -1107,7 +970,8 @@ export class MenuSession implements MenuSessionLike {
       !interaction.replied
     ) {
       await interaction.deferUpdate();
-      this._renderer['_lastComponentInteraction'] = null;
+      // Adapter's sendPayload checks interaction.deferred before calling .update(),
+      // so no explicit clear needed — it falls through to message.edit().
     }
 
     // --- Reserved button handling ---
@@ -1239,9 +1103,21 @@ export class MenuSession implements MenuSessionLike {
         await this._currentMenu.openModal(modalId);
         const modal = this._currentMenu.activeModal;
         if (modal) {
-          await interaction.showModal(modal.builder);
-          this._modalShowInteraction = interaction;
-          this._renderer['_lastComponentInteraction'] = null;
+          const normalizedTrigger: NormalizedComponentInteraction = {
+            customId: interaction.customId,
+            type: 'button',
+            userId: interaction.user.id,
+            deferUpdate: async () => {
+              if (!interaction.deferred && !interaction.replied) {
+                await interaction.deferUpdate();
+              }
+            },
+            raw: interaction,
+          };
+          await this._adapter.showModal(
+            modal.builder.toJSON(),
+            normalizedTrigger,
+          );
           return;
         }
       }
@@ -1271,11 +1147,21 @@ export class MenuSession implements MenuSessionLike {
       this._currentMenu.activeModal
     ) {
       if (!interaction.deferred && !interaction.replied) {
-        await interaction.showModal(
-          this._currentMenu.activeModal.builder,
+        const normalizedTrigger: NormalizedComponentInteraction = {
+          customId: interaction.customId,
+          type: 'button',
+          userId: interaction.user.id,
+          deferUpdate: async () => {
+            if (!interaction.deferred && !interaction.replied) {
+              await interaction.deferUpdate();
+            }
+          },
+          raw: interaction,
+        };
+        await this._adapter.showModal(
+          this._currentMenu.activeModal.builder.toJSON(),
+          normalizedTrigger,
         );
-        this._modalShowInteraction = interaction;
-        this._renderer['_lastComponentInteraction'] = null;
       } else {
         this._currentMenu.isModalActive = false;
         throw new Error(
