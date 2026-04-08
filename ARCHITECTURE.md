@@ -305,41 +305,49 @@ FlowCord resolves per-render behaviors by walking a priority hierarchy from high
 
 ```
 globalOverride → sessionOverride → classOverride (_setOverrideBehavior)
-  → explicit (setEphemeral / setUpdateMode / setOldMessageDisposal / entryEphemeral)
-    → classDefault (_setDefaultBehavior) → sessionDefault → globalDefault → framework default
+  → interactionExplicit (behavior on button/select/modal/message handler)
+  → explicit (setEphemeral / setMessageCleanup / entryEphemeral)
+    → interactionTypeDefault → classDefault (_setDefaultBehavior) → sessionDefault → globalDefault → framework default
 ```
 
 ### Resolved behaviors
 
-| Field                       | Type                                                   | Default             | Description                                                                                                                  |
-| --------------------------- | ------------------------------------------------------ | ------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| `ephemeral`                 | `boolean`                                              | `false`             | Whether the menu is visible only to the invoking user                                                                        |
-| `updateMode`                | `'editInPlace' \| 'postNew'`                           | `'editInPlace'`     | Whether menus edit in-place or always delete+repost to stay at the bottom of chat                                            |
-| `oldMessageDisposal`        | `'stripComponents' \| 'delete' \| 'replaceWithClosed'` | `'stripComponents'` | How the old message is handled when it must be replaced (ephemeral transitions, mode changes, `postNew`, message collection) |
-| `ephemeralFallbackDisposal` | `'stripComponents' \| 'replaceWithClosed'`             | `'stripComponents'` | Fallback disposal for `'delete'` mode when the active message is ephemeral (Discord cannot delete ephemeral messages)        |
-| `closedMessage`             | `string`                                               | `'*Menu closed*'`   | Content shown when disposal mode is `'replaceWithClosed'`                                                                    |
-| `deleteUserMessages`        | `boolean`                                              | `false`             | Whether to attempt deleting the user's typed message after `setMessageHandler` collects it                                   |
+| Field                       | Type                                                              | Default           | Description                                                                                                                        |
+| --------------------------- | ----------------------------------------------------------------- | ----------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `ephemeral`                 | `boolean`                                                         | `false`           | Whether the menu is visible only to the invoking user                                                                              |
+| `messageCleanup`            | `'edit' \| 'postAndDelete' \| 'postAndStrip' \| 'postAndReplace'` | `'edit'`          | How this menu's message is handled on the next render cycle                                                                        |
+| `ephemeralFallbackDisposal` | `'strip' \| 'replace'`                                            | `'strip'`         | Fallback when `messageCleanup` is `'postAndDelete'` but the active message is ephemeral (Discord cannot delete ephemeral messages) |
+| `closedMessage`             | `string`                                                          | `'*Menu closed*'` | Content shown when `messageCleanup` is `'postAndReplace'` or `ephemeralFallbackDisposal` is `'replace'`                            |
+| `deleteUserMessages`        | `boolean`                                                         | `false`           | Whether to attempt deleting the user's typed message after `setMessageHandler` collects it                                         |
 
 ### Where each level lives
 
-| Level                                | Set via                                                                                         | Scope                                                             |
-| ------------------------------------ | ----------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
-| `globalOverride` / `globalDefault`   | `FlowCordConfig.behavior`                                                                       | All sessions in this engine                                       |
-| `sessionOverride` / `sessionDefault` | `HandleInteractionOptions.behavior`                                                             | All menus in this invocation                                      |
-| `classOverride`                      | `MenuBuilder._setOverrideBehavior()` _(protected)_                                              | All menus of this builder subclass; beats explicit declarations   |
-| `explicit`                           | `MenuBuilder.setEphemeral()` / `setUpdateMode()` / `setOldMessageDisposal()` / `entryEphemeral` | This menu (or entry menu)                                         |
-| `classDefault`                       | `MenuBuilder._setDefaultBehavior()` _(protected)_                                               | All menus of this builder subclass; beats session/global defaults |
+| Level                                | Set via                                                                          | Scope                                                             |
+| ------------------------------------ | -------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| `globalOverride` / `globalDefault`   | `FlowCordConfig.behavior`                                                        | All sessions in this engine                                       |
+| `sessionOverride` / `sessionDefault` | `HandleInteractionOptions.behavior`                                              | All menus in this invocation                                      |
+| `classOverride`                      | `MenuBuilder._setOverrideBehavior()` _(protected)_                               | All menus of this builder subclass; beats explicit declarations   |
+| `interactionExplicit`                | `behavior` field on button, select, modal, or message handler config             | Single render cycle triggered by that interaction                 |
+| `explicit`                           | `MenuBuilder.setEphemeral()` / `setMessageCleanup()` / `entryEphemeral`          | This menu (or entry menu)                                         |
+| `interactionTypeDefault`             | Framework defaults per interaction type (e.g. message handlers → `postAndStrip`) | Single render cycle                                               |
+| `classDefault`                       | `MenuBuilder._setDefaultBehavior()` _(protected)_                                | All menus of this builder subclass; beats session/global defaults |
 
 `override` beats same-level `explicit`/`default`. Global `override` beats session `override`.
 
+### Per-interaction behavior
+
+Buttons, selects, modals, and message handlers each accept an optional `behavior: InteractionBehavior` field. This override applies for the single render cycle triggered by that interaction. On the next interaction, behavior reverts to menu/session/global config unless that interaction also declares an override.
+
+Setting `ephemeral` via interaction behavior causes one render cycle to post as ephemeral (or revert to public), useful for transiently revealing private information on an otherwise public menu. It does NOT persistently change the menu's ephemeral state. Additionally, interaction-level ephemeral behaviors will not be applied if the current menu is navigated away from.
+
 ### Implementation
 
-`resolveBehavior(builderBehavior, sessionPolicy, globalPolicy)` in `src/types/behavior.ts` returns a `ResolvedBehavior` with all fields as concrete values. The internal `resolveField<T>` helper is generic — it walks the same priority chain for both boolean and string-union fields, with a per-field fallback as the final default.
+`resolveBehavior(builderBehavior, sessionPolicy, globalPolicy, interactionBehavior?, interactionTypeDefaults?)` in `src/types/behavior.ts` returns a `ResolvedBehavior` with all fields as concrete values. The internal `resolveField<T>` helper is generic — it walks the same priority chain for both boolean and string-union fields, with a per-field fallback as the final default.
 
 `resolveBehavior` is called in two places:
 
 - **`MenuSession.initialize()`** — before `deferReply()` to determine the entry ephemeral flag
-- **`MenuSession.processMenus()`** — once per loop iteration; the result is passed to `renderCurrentMenu()` (for the render) and to the interaction-collection methods (for disposal settings on message collection)
+- **`MenuSession.processMenus()`** — once per loop iteration, consuming any pending interaction behavior; the result is passed to `renderCurrentMenu()` (for the render) and to the interaction-collection methods (for disposal settings on message collection)
 
 ### Ephemeral message editing
 
@@ -352,13 +360,15 @@ Edits to ephemeral messages are routed through `interaction.editReply()` for `@o
 
 ### Old message disposal
 
-Whenever a new message must be posted (ephemeral-state change, render-mode change, `updateMode: 'postNew'`, or after `setMessageHandler` collection), the renderer calls `disposeOldMessage()` before sending the new one. The disposal strategy is determined by `oldMessageDisposal` from the resolved behavior:
+Whenever a new message must be posted (ephemeral-state change, `messageCleanup` not `'edit'`, or after `setMessageHandler` collection), the renderer calls `disposeOldMessage()` before sending the new one. The disposal strategy is determined by the `messageCleanup` mode from the resolved behavior:
 
-- **`stripComponents`**: edit the old message to remove interactive components, leaving content in place
-- **`delete`**: delete the message if it is non-ephemeral; fall back to `ephemeralFallbackDisposal` if it is ephemeral
-- **`replaceWithClosed`**: edit the old message to replace its content with the `closedMessage` string and clear all components
+- **`postAndStrip`**: post a new message and strip interactive components from the old one, leaving content in place
+- **`postAndDelete`**: post a new message and delete the old one if non-ephemeral; fall back to `ephemeralFallbackDisposal` if ephemeral
+- **`postAndReplace`**: post a new message and replace the old one's content with the `closedMessage` string and clear all components
 
-For `postNew` mode with a component interaction, the renderer calls `interaction.deferUpdate()` (acknowledges the interaction without editing the message) before disposing and reposting.
+For non-`'edit'` modes with a component interaction, the renderer calls `interaction.deferUpdate()` (acknowledges the interaction without editing the message) before disposing and reposting.
+
+Message cleanup behavior is resolved from the **departing** menu — the menu whose message is being replaced — not the arriving menu. This ensures that each menu controls how its own message is cleaned up when navigating away.
 
 ---
 

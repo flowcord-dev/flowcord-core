@@ -1,6 +1,6 @@
 {
   "name": "@flowcord/core",
-  "version": "0.1.0-alpha.2",
+  "version": "0.1.0-alpha.1",
   "description": "Lifecycle-driven interactive menu framework for Discord.js",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
