@@ -1443,12 +1443,6 @@ export class MenuSession implements MenuSessionLike {
       ) => {
         await this.navigateTo(menuId, options);
       },
-      navigateTo: async (
-        menuId: string,
-        options?: Record<string, unknown>,
-      ) => {
-        await this.navigateTo(menuId, options);
-      },
       goBack: async (result?: unknown) => {
         await this.goBack(result);
       },
