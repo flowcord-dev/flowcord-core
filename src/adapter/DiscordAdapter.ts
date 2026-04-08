@@ -75,13 +75,6 @@ export class DiscordAdapter implements FlowCordAdapter {
   }
 
   async sendPayload(payload: NormalizedRenderPayload): Promise<void> {
-    // Store the pre-computed stripped layout components for postAndStrip disposal
-    if (payload.strippedLayoutComponents !== undefined) {
-      this._lastStrippedLayoutComponents = payload.strippedLayoutComponents;
-    } else if (payload.mode !== 'layout') {
-      this._lastStrippedLayoutComponents = null;
-    }
-
     const { behavior, mode: newMode } = payload;
     const { ephemeral } = behavior;
 
@@ -134,10 +127,14 @@ export class DiscordAdapter implements FlowCordAdapter {
       this._activeMessage !== null
     ) {
       // postAnd* mode — dispose old and always post a new one.
-      if (this._lastComponentInteraction) {
+      if (
+        this._lastComponentInteraction &&
+        !this._lastComponentInteraction.deferred &&
+        !this._lastComponentInteraction.replied
+      ) {
         await this._lastComponentInteraction.deferUpdate();
-        this._lastComponentInteraction = null;
       }
+      this._lastComponentInteraction = null;
       await this._disposeOldMessage(behavior);
       const followUpPayload = ephemeral
         ? this._makeEphemeral(discordPayload)
@@ -174,6 +171,14 @@ export class DiscordAdapter implements FlowCordAdapter {
       this._activeMessageIsFollowUp = false;
       this._deferEphemeral = null;
       this._lastUpdateSource = 'editReply';
+    }
+
+    // Update stripped layout components AFTER disposal so _disposeOldMessage
+    // uses the previous menu's stripped components, not the incoming menu's.
+    if (payload.strippedLayoutComponents !== undefined) {
+      this._lastStrippedLayoutComponents = payload.strippedLayoutComponents;
+    } else if (newMode !== 'layout') {
+      this._lastStrippedLayoutComponents = null;
     }
 
     this._activeMessageMode = newMode;
