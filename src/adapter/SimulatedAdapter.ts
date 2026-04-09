@@ -44,6 +44,7 @@ class InteractionQueue<T> {
   private _waiting: ((item: T) => void) | null = null;
   private _waitingReject: ((err: Error) => void) | null = null;
   private readonly _safetyTimeout: number;
+  private _timeoutHandle: ReturnType<typeof setTimeout> | null = null;
 
   constructor(safetyTimeout = 5000) {
     this._safetyTimeout = safetyTimeout;
@@ -54,6 +55,11 @@ class InteractionQueue<T> {
       const resolve = this._waiting;
       this._waiting = null;
       this._waitingReject = null;
+      // Cancel the safety timeout so it does not keep the process alive.
+      if (this._timeoutHandle !== null) {
+        clearTimeout(this._timeoutHandle);
+        this._timeoutHandle = null;
+      }
       resolve(item);
     } else {
       this._queue.push(item);
@@ -69,7 +75,8 @@ class InteractionQueue<T> {
       this._waiting = resolve;
       this._waitingReject = reject;
 
-      setTimeout(() => {
+      this._timeoutHandle = setTimeout(() => {
+        this._timeoutHandle = null;
         if (this._waiting === resolve) {
           this._waiting = null;
           this._waitingReject = null;
@@ -81,6 +88,10 @@ class InteractionQueue<T> {
 
   clear(): void {
     this._queue.length = 0;
+    if (this._timeoutHandle !== null) {
+      clearTimeout(this._timeoutHandle);
+      this._timeoutHandle = null;
+    }
     if (this._waitingReject) {
       this._waitingReject(new SimulatedTimeoutError('Queue cleared'));
     }
