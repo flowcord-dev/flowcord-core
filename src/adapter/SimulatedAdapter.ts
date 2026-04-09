@@ -109,6 +109,15 @@ export class SimulatedAdapter implements FlowCordAdapter {
   private _activeMessageMode: RenderMode | null = null;
   private _endResolve!: (reason: NormalizedTerminalReason) => void;
 
+  /**
+   * True after sendPayload() is called, cleared when render listeners are
+   * notified in awaitComponent/awaitMessage. This guards against the
+   * awaitComponent call inside awaitModalInteraction (the modal-dismiss racer)
+   * triggering waitForNextRender() prematurely — only a call that follows an
+   * actual render should notify.
+   */
+  private _hasPendingRender = false;
+
   /** Resolves when sendTerminalPayload() is called. */
   readonly endPromise: Promise<NormalizedTerminalReason>;
 
@@ -152,24 +161,35 @@ export class SimulatedAdapter implements FlowCordAdapter {
   async sendPayload(payload: NormalizedRenderPayload): Promise<void> {
     this.renders.push(payload);
     this._activeMessageMode = payload.mode;
-
-    // Notify all pending waitForNextRender() listeners
-    const listeners = this._renderListeners.splice(0);
-    for (const listener of listeners) {
-      listener();
-    }
+    // Mark that a render occurred. Render listeners will be notified in the
+    // next awaitComponent/awaitMessage call (the main-loop "ready for input"
+    // call), NOT here. This prevents awaitComponent calls that are part of a
+    // modal-dismiss race from triggering waitForNextRender() prematurely.
+    this._hasPendingRender = true;
   }
 
   awaitComponent(
     options: AwaitOptions,
   ): Promise<NormalizedComponentInteraction> {
+    if (this._hasPendingRender) {
+      this._hasPendingRender = false;
+      const listeners = this._renderListeners.splice(0);
+      for (const listener of listeners) {
+        listener();
+      }
+    }
     return this._componentQueue.dequeue(options);
   }
 
   awaitMessage(options: AwaitOptions): Promise<NormalizedMessage> {
-    // awaitMessage sets _isReset on DiscordAdapter, but here we handle the
-    // "message collected" signal implicitly — SimulatedAdapter tracks no
-    // separate reset state since sendPayload always appends to renders[].
+    // Same pattern as awaitComponent.
+    if (this._hasPendingRender) {
+      this._hasPendingRender = false;
+      const listeners = this._renderListeners.splice(0);
+      for (const listener of listeners) {
+        listener();
+      }
+    }
     return this._messageQueue.dequeue(options);
   }
 
