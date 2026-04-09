@@ -100,11 +100,7 @@ export type {
 
 // Adapter
 export type { FlowCordAdapter } from './adapter';
-export {
-  DiscordAdapter,
-  SimulatedAdapter,
-  SimulatedTimeoutError,
-} from './adapter';
+export { DiscordAdapter } from './adapter';
 export type {
   AwaitOptions,
   NormalizedComponentInteraction,
@@ -116,21 +112,9 @@ export type {
   NormalizedTerminalPayload,
 } from './adapter';
 
-// Testing utilities
-export {
-  createTestSession,
-  buildStubClient,
-  buildStubInteraction,
-} from './testing';
-export type {
-  CreateTestSessionOptions,
-  TestSessionHandle,
-} from './testing';
-
-// Tracing
+// Tracing (production — NavigationTracer is enabled via MenuEngine config)
 export { NavigationTracer } from './tracing';
-export { EventLog } from './tracing';
-export type { NavigationEvent, SessionEvent } from './tracing';
+export type { NavigationEvent } from './tracing';
 
 // Types
 export type {

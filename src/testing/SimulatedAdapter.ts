@@ -11,7 +11,7 @@
  * - endPromise resolves after sendTerminalPayload() is called.
  * - All normalized payloads are appended to renders[] / terminals[] for assertions.
  */
-import type { FlowCordAdapter } from './FlowCordAdapter';
+import type { FlowCordAdapter } from '../adapter/FlowCordAdapter';
 import type {
   AwaitOptions,
   NormalizedComponentInteraction,
@@ -21,7 +21,7 @@ import type {
   NormalizedRenderPayload,
   NormalizedTerminalPayload,
   NormalizedTerminalReason,
-} from './types';
+} from '../adapter/types';
 import type { RenderMode } from '../types/common';
 
 /** Thrown when an InteractionQueue times out waiting for an item. */

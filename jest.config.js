@@ -11,8 +11,8 @@ module.exports = {
   collectCoverageFrom: [
     'src/**/*.ts',
     '!src/**/*.d.ts',
-    '!src/testing/**',       // test infrastructure (SimulatedAdapter, createTestSession, stubs)
-    '!src/tracing/**',       // EventLog — wired but not yet exercised via public API
+    '!src/**/index.ts',      // barrel re-export files (no logic)
+    '!src/testing/**',       // test infrastructure — published separately via @flowcord/testing (Phase 3)
     '!src/**/__tests__/**',  // test files themselves
   ],
   passWithNoTests: true,
