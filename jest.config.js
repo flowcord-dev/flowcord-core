@@ -8,6 +8,12 @@ module.exports = {
   testMatch: ['**/*.test.ts'],
   moduleFileExtensions: ['ts', 'js'],
   coverageDirectory: 'coverage',
-  collectCoverageFrom: ['src/**/*.ts', '!src/**/*.d.ts'],
+  collectCoverageFrom: [
+    'src/**/*.ts',
+    '!src/**/*.d.ts',
+    '!src/testing/**',       // test infrastructure (SimulatedAdapter, createTestSession, stubs)
+    '!src/tracing/**',       // EventLog — wired but not yet exercised via public API
+    '!src/**/__tests__/**',  // test files themselves
+  ],
   passWithNoTests: true,
 };

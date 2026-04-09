@@ -14,6 +14,10 @@ import type {
 } from '../../adapter/types';
 import { ComponentIdManager } from '../../components/ComponentIdManager';
 
+// Discord API component type numbers. ActionRow=1, Button=2, StringSelect=3,
+// other select variants (UserSelect, RoleSelect, etc.) are 5–8.
+const DISCORD_TYPE_SELECT_MENU_MIN = 3;
+
 /**
  * Walk a NormalizedRenderPayload and return the first button with a
  * matching label (case-insensitive). Searches both embeds-mode components
@@ -240,4 +244,90 @@ export function buttonCustomId(
   componentId: string,
 ): string {
   return new ComponentIdManager(sessionId, menuId).namespace(componentId);
+}
+
+/**
+ * Walk a NormalizedRenderPayload and return the custom_id of the first
+ * select menu component. Works in both embeds mode and layout mode.
+ *
+ * Discord API component_type for select menus: StringSelect=3, others are 5–8.
+ * Returns null if no select menu is found.
+ */
+export function findSelectId(payload: NormalizedRenderPayload): string | null {
+  // Embeds mode: walk components (raw API JSON — Discord uses 'type' for component type)
+  if (payload.components) {
+    for (const row of payload.components) {
+      for (const comp of row.components as unknown as Record<string, unknown>[]) {
+        const type = comp['type'] as number | undefined;
+        if (
+          type !== undefined &&
+          type >= DISCORD_TYPE_SELECT_MENU_MIN &&
+          typeof comp['custom_id'] === 'string'
+        ) {
+          return comp['custom_id'];
+        }
+      }
+    }
+  }
+
+  // Layout mode: recurse
+  if (payload.layoutComponents) {
+    const result = findSelectInLayout(payload.layoutComponents as unknown[]);
+    if (result) return result;
+  }
+
+  return null;
+}
+
+function findSelectInLayout(components: unknown[]): string | null {
+  for (const comp of components) {
+    if (typeof comp !== 'object' || comp === null) continue;
+    const c = comp as Record<string, unknown>;
+
+    const type = c['type'] as number | undefined;
+    if (
+      type !== undefined &&
+      type >= DISCORD_TYPE_SELECT_MENU_MIN &&
+      typeof c['custom_id'] === 'string'
+    ) {
+      return c['custom_id'];
+    }
+
+    for (const key of ['components', 'children', 'items']) {
+      if (Array.isArray(c[key])) {
+        const result = findSelectInLayout(c[key] as unknown[]);
+        if (result) return result;
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Build a fake NormalizedComponentInteraction for a select menu interaction.
+ */
+export function select(
+  customId: string,
+  values: string[],
+  userId = 'test-user',
+): NormalizedComponentInteraction {
+  const raw = {
+    customId,
+    deferred: false,
+    replied: false,
+    deferUpdate: async () => { raw.deferred = true; },
+    isAnySelectMenu: () => true,
+    isButton: () => false,
+    values,
+    user: { id: userId },
+  } as unknown as import('discord.js').MessageComponentInteraction;
+
+  return {
+    customId,
+    type: 'select' as const,
+    userId,
+    values,
+    deferUpdate: async () => { raw.deferred = true; },
+    raw,
+  };
 }

@@ -83,6 +83,10 @@ class InteractionQueue<T> {
           reject(new SimulatedTimeoutError());
         }
       }, this._safetyTimeout);
+      // Don't prevent Node/Jest from exiting if only this timer remains.
+      // The timer is still cleared normally via clearTimeout() when an item
+      // is enqueued — unref() only affects process exit, not timer firing.
+      (this._timeoutHandle as unknown as NodeJS.Timeout).unref?.();
     });
   }
 
