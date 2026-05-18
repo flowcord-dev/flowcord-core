@@ -98,9 +98,39 @@ export type {
   CreateMenuDefinitionFn,
 } from './registry';
 
+// Adapter
+export type { FlowCordAdapter } from './adapter';
+export {
+  DiscordAdapter,
+  SimulatedAdapter,
+  SimulatedTimeoutError,
+} from './adapter';
+export type {
+  AwaitOptions,
+  NormalizedComponentInteraction,
+  NormalizedMessage,
+  NormalizedModal,
+  NormalizedModalSubmission,
+  NormalizedRenderBehavior,
+  NormalizedRenderPayload,
+  NormalizedTerminalPayload,
+} from './adapter';
+
+// Testing utilities
+export {
+  createTestSession,
+  buildStubClient,
+  buildStubInteraction,
+} from './testing';
+export type {
+  CreateTestSessionOptions,
+  TestSessionHandle,
+} from './testing';
+
 // Tracing
 export { NavigationTracer } from './tracing';
-export type { NavigationEvent } from './tracing';
+export { EventLog } from './tracing';
+export type { NavigationEvent, SessionEvent } from './tracing';
 
 // Types
 export type {

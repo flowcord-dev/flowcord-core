@@ -382,6 +382,19 @@ export class MenuBuilder<
   }
 
   /**
+   * Set the message shown when this session ends due to inactivity.
+   * Overrides the default '*This interaction has timed out.*' and any
+   * session or global default, but yields to session and global overrides.
+   */
+  setTimeoutMessage(message: string): this {
+    this._behavior = {
+      ...this._behavior,
+      explicit: { ...this._behavior.explicit, timeoutMessage: message },
+    };
+    return this;
+  }
+
+  /**
    * Set class-level behavior defaults for this builder subclass.
    *
    * Called from a subclass constructor to establish defaults that apply when

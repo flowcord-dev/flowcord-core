@@ -60,12 +60,6 @@ export interface MenuContext<
     options?: Record<string, unknown>,
   ): Promise<void>;
 
-  /** Alias for goTo — more descriptive in inline callbacks */
-  navigateTo(
-    menuId: string,
-    options?: Record<string, unknown>,
-  ): Promise<void>;
-
   /** Pop the navigation stack, returning to the previous menu */
   goBack(result?: unknown): Promise<void>;
 

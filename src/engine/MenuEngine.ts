@@ -16,8 +16,10 @@ import { MenuRegistry } from '../registry/MenuRegistry';
 import { ActionRegistry } from '../registry/ActionRegistry';
 import { HookRegistry } from '../registry/HookRegistry';
 import { NavigationTracer } from '../tracing/NavigationTracer';
+import { EventLog } from '../tracing/EventLog';
 import { ComponentIdManager } from '../components/ComponentIdManager';
 import { MenuSession } from './MenuSession';
+import type { FlowCordAdapter } from '../adapter/FlowCordAdapter';
 
 export interface MenuEngineConfig {
   /** The Discord.js client */
@@ -190,11 +192,18 @@ export class MenuEngine {
 
   /**
    * Create a new MenuSession and register it for interaction routing.
+   *
+   * @param interaction - The slash command interaction
+   * @param adapter - Optional adapter override; defaults to DiscordAdapter.
+   *   Pass a SimulatedAdapter for testing.
+   * @param eventLog - Optional EventLog for recording session lifecycle events.
    */
   createSession(
     interaction: ChatInputCommandInteraction,
+    adapter?: FlowCordAdapter,
+    eventLog?: EventLog,
   ): MenuSession {
-    const session = new MenuSession(this, interaction);
+    const session = new MenuSession(this, interaction, adapter, eventLog);
     this._sessions.set(session.id, session);
     return session;
   }
