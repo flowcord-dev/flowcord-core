@@ -10,8 +10,6 @@
  * converts them back to Discord.js API options before sending.
  */
 import {
-  ActionRowBuilder,
-  ButtonBuilder,
   ChannelSelectMenuBuilder,
   MentionableSelectMenuBuilder,
   MessageFlags,
@@ -25,6 +23,8 @@ import {
   type MessageComponentInteraction,
   type ModalSubmitInteraction,
 } from 'discord.js';
+
+import type { RenderMode } from '../types/common';
 import type { FlowCordAdapter } from './FlowCordAdapter';
 import type {
   AwaitOptions,
@@ -36,7 +36,6 @@ import type {
   NormalizedSelectComponent,
   NormalizedTerminalPayload,
 } from './types';
-import type { RenderMode } from '../types/common';
 
 type LastUpdateSource =
   | 'editReply'
@@ -53,7 +52,8 @@ export class DiscordAdapter implements FlowCordAdapter {
   private _activeMessageEphemeral = false;
   private _activeMessageIsFollowUp = false;
   private _lastUpdateSource: LastUpdateSource | null = null;
-  private _lastComponentInteraction: MessageComponentInteraction | null = null;
+  private _lastComponentInteraction: MessageComponentInteraction | null =
+    null;
   private _isReset = false;
   private _deferEphemeral: boolean | null = null;
   /** Stored from last layout render for postAndStrip disposal */
@@ -79,7 +79,8 @@ export class DiscordAdapter implements FlowCordAdapter {
     const { ephemeral } = behavior;
 
     const modeChanged =
-      this._activeMessageMode !== null && this._activeMessageMode !== newMode;
+      this._activeMessageMode !== null &&
+      this._activeMessageMode !== newMode;
     const ephemeralChanged =
       this._activeMessage !== null &&
       this._activeMessageEphemeral !== ephemeral;
@@ -87,64 +88,22 @@ export class DiscordAdapter implements FlowCordAdapter {
     const discordPayload = this._buildDiscordPayload(payload);
 
     if (ephemeralChanged || modeChanged) {
-      // Mode or ephemeral transition — dispose old message, post new as followUp.
-      await this._disposeOldMessage(behavior);
-      const followUpPayload = ephemeral
-        ? this._makeEphemeral(discordPayload)
-        : discordPayload;
-      const newMessage =
-        await this._commandInteraction.followUp(followUpPayload);
-      this._activeMessage = newMessage as Message;
-      this._activeMessageEphemeral = ephemeral;
-      this._activeMessageIsFollowUp = true;
-      this._lastComponentInteraction = null;
-      this._lastUpdateSource = 'followUp';
+      await this._postFollowUp(discordPayload, ephemeral, behavior);
     } else if (this._isReset) {
-      this._isReset = false;
-      if (behavior.messageCleanup !== 'edit') {
-        // postAnd*: dispose old message and post updated menu as followUp.
-        await this._disposeOldMessage(behavior);
-        const followUpPayload = ephemeral
-          ? this._makeEphemeral(discordPayload)
-          : discordPayload;
-        const newMessage =
-          await this._commandInteraction.followUp(followUpPayload);
-        this._activeMessage = newMessage as Message;
-        this._activeMessageEphemeral = ephemeral;
-        this._activeMessageIsFollowUp = true;
-        this._lastUpdateSource = 'followUp';
-      } else {
-        // edit (default after message collection): edit existing message in place.
-        if (this._activeMessageEphemeral) {
-          await this._editEphemeralMessage(discordPayload);
-        } else if (this._activeMessage) {
-          await this._activeMessage.edit(discordPayload);
-        }
-        this._lastUpdateSource = 'editReply';
-      }
+      await this._handleResetRender(
+        discordPayload,
+        ephemeral,
+        behavior,
+      );
     } else if (
       behavior.messageCleanup !== 'edit' &&
       this._activeMessage !== null
     ) {
-      // postAnd* mode — dispose old and always post a new one.
-      if (
-        this._lastComponentInteraction &&
-        !this._lastComponentInteraction.deferred &&
-        !this._lastComponentInteraction.replied
-      ) {
-        await this._lastComponentInteraction.deferUpdate();
-      }
-      this._lastComponentInteraction = null;
-      await this._disposeOldMessage(behavior);
-      const followUpPayload = ephemeral
-        ? this._makeEphemeral(discordPayload)
-        : discordPayload;
-      const newMessage =
-        await this._commandInteraction.followUp(followUpPayload);
-      this._activeMessage = newMessage as Message;
-      this._activeMessageEphemeral = ephemeral;
-      this._activeMessageIsFollowUp = true;
-      this._lastUpdateSource = 'followUp';
+      await this._handlePostAndCleanup(
+        discordPayload,
+        ephemeral,
+        behavior,
+      );
     } else if (
       this._lastComponentInteraction &&
       !this._lastComponentInteraction.deferred &&
@@ -154,29 +113,17 @@ export class DiscordAdapter implements FlowCordAdapter {
       this._lastComponentInteraction = null;
       this._lastUpdateSource = 'component';
     } else if (this._activeMessage) {
-      // Existing message — edit it.
-      if (this._activeMessageEphemeral) {
-        await this._editEphemeralMessage(discordPayload);
-      } else {
-        await this._activeMessage.edit(discordPayload);
-      }
+      await this._editActiveMessage(discordPayload);
       this._lastUpdateSource = 'editReply';
     } else {
-      // First render — editReply on the deferred reply.
-      const message =
-        await this._commandInteraction.editReply(discordPayload);
-      this._activeMessage = message as Message;
-      this._activeMessageEphemeral =
-        this._deferEphemeral ?? ephemeral;
-      this._activeMessageIsFollowUp = false;
-      this._deferEphemeral = null;
-      this._lastUpdateSource = 'editReply';
+      await this._handleFirstRender(discordPayload, ephemeral);
     }
 
     // Update stripped layout components AFTER disposal so _disposeOldMessage
     // uses the previous menu's stripped components, not the incoming menu's.
     if (payload.strippedLayoutComponents !== undefined) {
-      this._lastStrippedLayoutComponents = payload.strippedLayoutComponents;
+      this._lastStrippedLayoutComponents =
+        payload.strippedLayoutComponents;
     } else if (newMode !== 'layout') {
       this._lastStrippedLayoutComponents = null;
     }
@@ -184,26 +131,91 @@ export class DiscordAdapter implements FlowCordAdapter {
     this._activeMessageMode = newMode;
   }
 
+  /** Mode or ephemeral transition — dispose old message, post new as followUp. */
+  private async _postFollowUp(
+    discordPayload: Record<string, unknown>,
+    ephemeral: boolean,
+    behavior: NormalizedRenderPayload['behavior'],
+  ): Promise<void> {
+    await this._disposeOldMessage(behavior);
+    const followUpPayload = ephemeral
+      ? this._makeEphemeral(discordPayload)
+      : discordPayload;
+    const newMessage =
+      await this._commandInteraction.followUp(followUpPayload);
+    this._activeMessage = newMessage;
+    this._activeMessageEphemeral = ephemeral;
+    this._activeMessageIsFollowUp = true;
+    this._lastUpdateSource = 'followUp';
+  }
+
+  /** After message collection: edit in place (cleanup=edit) or repost (postAnd*). */
+  private async _handleResetRender(
+    discordPayload: Record<string, unknown>,
+    ephemeral: boolean,
+    behavior: NormalizedRenderPayload['behavior'],
+  ): Promise<void> {
+    this._isReset = false;
+    if (behavior.messageCleanup === 'edit') {
+      await this._editActiveMessage(discordPayload);
+      this._lastUpdateSource = 'editReply';
+    } else {
+      await this._postFollowUp(discordPayload, ephemeral, behavior);
+    }
+  }
+
+  /** postAnd* mode — defer pending component if needed, dispose old, repost. */
+  private async _handlePostAndCleanup(
+    discordPayload: Record<string, unknown>,
+    ephemeral: boolean,
+    behavior: NormalizedRenderPayload['behavior'],
+  ): Promise<void> {
+    if (
+      this._lastComponentInteraction &&
+      !this._lastComponentInteraction.deferred &&
+      !this._lastComponentInteraction.replied
+    ) {
+      await this._lastComponentInteraction.deferUpdate();
+    }
+    this._lastComponentInteraction = null;
+    await this._postFollowUp(discordPayload, ephemeral, behavior);
+  }
+
+  /** First render — editReply on the deferred interaction. */
+  private async _handleFirstRender(
+    discordPayload: Record<string, unknown>,
+    ephemeral: boolean,
+  ): Promise<void> {
+    const message =
+      await this._commandInteraction.editReply(discordPayload);
+    this._activeMessage = message;
+    this._activeMessageEphemeral = this._deferEphemeral ?? ephemeral;
+    this._activeMessageIsFollowUp = false;
+    this._deferEphemeral = null;
+    this._lastUpdateSource = 'editReply';
+  }
+
   async awaitComponent(
     options: AwaitOptions,
   ): Promise<NormalizedComponentInteraction> {
     if (!this._activeMessage) {
-      return new Promise((_, reject) =>
-        reject(new Error('No active message to await components on')),
-      );
+      throw new Error('No active message to await components on');
     }
 
-    const interaction = await this._activeMessage.awaitMessageComponent({
-      filter: (i) => i.user.id === options.userId,
-      time: options.timeout,
-    });
+    const interaction =
+      await this._activeMessage.awaitMessageComponent({
+        filter: (i) => i.user.id === options.userId,
+        time: options.timeout,
+      });
 
     this._lastComponentInteraction = interaction;
 
     return this._wrapComponentInteraction(interaction);
   }
 
-  async awaitMessage(options: AwaitOptions): Promise<NormalizedMessage> {
+  async awaitMessage(
+    options: AwaitOptions,
+  ): Promise<NormalizedMessage> {
     const channel = this._commandInteraction.channel;
     if (!channel || !('awaitMessages' in channel)) {
       throw new Error('Channel does not support message collection');
@@ -211,7 +223,9 @@ export class DiscordAdapter implements FlowCordAdapter {
 
     const collected = await (
       channel as {
-        awaitMessages: (opts: Record<string, unknown>) => Promise<{ first: () => Message | undefined }>;
+        awaitMessages: (
+          opts: Record<string, unknown>,
+        ) => Promise<{ first: () => Message | undefined }>;
       }
     ).awaitMessages({
       filter: (msg: Message) => msg.author.id === options.userId,
@@ -250,7 +264,9 @@ export class DiscordAdapter implements FlowCordAdapter {
     this._lastComponentInteraction = null;
   }
 
-  async awaitModal(options: AwaitOptions): Promise<NormalizedModalSubmission> {
+  async awaitModal(
+    options: AwaitOptions,
+  ): Promise<NormalizedModalSubmission> {
     // awaitModalSubmit is called on the component interaction that triggered the modal.
     // This is stored in MenuSession._modalShowInteraction and passed through the adapter.
     // Since we don't have direct access here, MenuSession manages this via the
@@ -258,13 +274,17 @@ export class DiscordAdapter implements FlowCordAdapter {
     // The DiscordAdapter receives the trigger interaction via showModal() — we need
     // to store it so awaitModal can call awaitModalSubmit on it.
     if (!this._pendingModalInteraction) {
-      throw new Error('No pending modal interaction to await submit on');
+      throw new Error(
+        'No pending modal interaction to await submit on',
+      );
     }
 
-    const modalInteraction = await this._pendingModalInteraction.awaitModalSubmit({
-      filter: (i: ModalSubmitInteraction) => i.user.id === options.userId,
-      time: options.timeout,
-    });
+    const modalInteraction =
+      await this._pendingModalInteraction.awaitModalSubmit({
+        filter: (i: ModalSubmitInteraction) =>
+          i.user.id === options.userId,
+        time: options.timeout,
+      });
 
     this._pendingModalInteraction = null;
 
@@ -278,23 +298,25 @@ export class DiscordAdapter implements FlowCordAdapter {
   async sendTerminalPayload(
     payload: NormalizedTerminalPayload,
   ): Promise<void> {
-    const discordPayload: Record<string, unknown> =
-      payload.mode === 'layout'
-        ? {
-            components: [
-              new TextDisplayBuilder().setContent(payload.content),
-            ],
-            embeds: [],
-            content: '',
-            flags: MessageFlags.IsComponentsV2,
-          }
-        : payload.reason === 'closed'
-          ? { components: [] }
-          : {
-              content: payload.content,
-              embeds: [],
-              components: [],
-            };
+    let discordPayload: Record<string, unknown>;
+    if (payload.mode === 'layout') {
+      discordPayload = {
+        components: [
+          new TextDisplayBuilder().setContent(payload.content),
+        ],
+        embeds: [],
+        content: '',
+        flags: MessageFlags.IsComponentsV2,
+      };
+    } else if (payload.reason === 'closed') {
+      discordPayload = { components: [] };
+    } else {
+      discordPayload = {
+        content: payload.content,
+        embeds: [],
+        components: [],
+      };
+    }
 
     try {
       if (
@@ -304,12 +326,15 @@ export class DiscordAdapter implements FlowCordAdapter {
         !this._isReset
       ) {
         await this._lastComponentInteraction.update(
-          discordPayload as Parameters<MessageComponentInteraction['update']>[0],
+          discordPayload as Parameters<
+            MessageComponentInteraction['update']
+          >[0],
         );
-      } else if (this._activeMessage && !this._activeMessageEphemeral) {
-        await this._activeMessage.edit(
-          discordPayload as Parameters<Message['edit']>[0],
-        );
+      } else if (
+        this._activeMessage &&
+        !this._activeMessageEphemeral
+      ) {
+        await this._activeMessage.edit(discordPayload);
       } else {
         await this._editEphemeralMessage(discordPayload);
       }
@@ -351,7 +376,8 @@ export class DiscordAdapter implements FlowCordAdapter {
   // Private helpers
   // -----------------------------------------------------------------------
 
-  private _pendingModalInteraction: MessageComponentInteraction | null = null;
+  private _pendingModalInteraction: MessageComponentInteraction | null =
+    null;
 
   /** Store the trigger interaction for awaitModal to call awaitModalSubmit on. */
   setPendingModalInteraction(
@@ -410,13 +436,17 @@ export class DiscordAdapter implements FlowCordAdapter {
   ): Promise<void> {
     if (!this._activeMessage) return;
 
-    const effectiveCleanup =
+    let effectiveCleanup = behavior.messageCleanup;
+
+    if (
       this._activeMessageEphemeral &&
       behavior.messageCleanup === 'postAndDelete'
-        ? behavior.ephemeralFallbackDisposal === 'replace'
+    ) {
+      effectiveCleanup =
+        behavior.ephemeralFallbackDisposal === 'replace'
           ? 'postAndReplace'
-          : 'postAndStrip'
-        : behavior.messageCleanup;
+          : 'postAndStrip';
+    }
 
     const isLayout = this._activeMessageMode === 'layout';
 
@@ -424,50 +454,14 @@ export class DiscordAdapter implements FlowCordAdapter {
       if (effectiveCleanup === 'postAndDelete') {
         await this._deleteOldMessage();
       } else if (effectiveCleanup === 'postAndReplace') {
-        const closePayload: Record<string, unknown> = isLayout
-          ? {
-              components: [
-                new TextDisplayBuilder().setContent(behavior.closedMessage),
-              ],
-              embeds: [],
-              content: '',
-              flags: MessageFlags.IsComponentsV2,
-            }
-          : {
-              content: behavior.closedMessage,
-              embeds: [],
-              components: [],
-            };
-        if (this._activeMessageEphemeral) {
-          await this._editEphemeralMessage(closePayload);
-        } else {
-          await this._activeMessage.edit(closePayload);
-        }
+        await this._editActiveMessage(
+          this._buildClosePayload(isLayout, behavior),
+        );
         this._activeMessage = null;
       } else {
-        // postAndStrip
-        let stripPayload: Record<string, unknown>;
-        if (isLayout) {
-          const strippedComponents =
-            this._lastStrippedLayoutComponents &&
-            this._lastStrippedLayoutComponents.length > 0
-              ? this._lastStrippedLayoutComponents
-              : [new TextDisplayBuilder().setContent(behavior.closedMessage)];
-          stripPayload = {
-            components: strippedComponents,
-            embeds: [],
-            content: '',
-            flags: MessageFlags.IsComponentsV2,
-          };
-        } else {
-          stripPayload = { components: [] };
-        }
-
-        if (this._activeMessageEphemeral) {
-          await this._editEphemeralMessage(stripPayload);
-        } else {
-          await this._activeMessage.edit(stripPayload);
-        }
+        await this._editActiveMessage(
+          this._buildStripPayload(isLayout, behavior),
+        );
         this._activeMessage = null;
       }
     } catch {
@@ -475,6 +469,62 @@ export class DiscordAdapter implements FlowCordAdapter {
     }
 
     this._lastComponentInteraction = null;
+  }
+
+  private async _editActiveMessage(
+    payload: Record<string, unknown>,
+  ): Promise<void> {
+    if (this._activeMessageEphemeral) {
+      await this._editEphemeralMessage(payload);
+    } else if (this._activeMessage) {
+      await this._activeMessage.edit(payload);
+    }
+  }
+
+  private _buildClosePayload(
+    isLayout: boolean,
+    behavior: Pick<
+      NormalizedRenderPayload['behavior'],
+      'closedMessage'
+    >,
+  ): Record<string, unknown> {
+    if (isLayout) {
+      return {
+        components: [
+          new TextDisplayBuilder().setContent(behavior.closedMessage),
+        ],
+        embeds: [],
+        content: '',
+        flags: MessageFlags.IsComponentsV2,
+      };
+    }
+    return {
+      content: behavior.closedMessage,
+      embeds: [],
+      components: [],
+    };
+  }
+
+  private _buildStripPayload(
+    isLayout: boolean,
+    behavior: Pick<
+      NormalizedRenderPayload['behavior'],
+      'closedMessage'
+    >,
+  ): Record<string, unknown> {
+    if (!isLayout) {
+      return { components: [] };
+    }
+    const strippedComponents = this._lastStrippedLayoutComponents
+      ?.length
+      ? this._lastStrippedLayoutComponents
+      : [new TextDisplayBuilder().setContent(behavior.closedMessage)];
+    return {
+      components: strippedComponents,
+      embeds: [],
+      content: '',
+      flags: MessageFlags.IsComponentsV2,
+    };
   }
 
   private async _editEphemeralMessage(

@@ -6,7 +6,8 @@
  *
  * Manages the interaction loop lifecycle, state, navigation stack,
  */
-import { randomUUID } from 'crypto';
+import { randomUUID } from 'node:crypto';
+
 import {
   type ChatInputCommandInteraction,
   type Client,
@@ -14,6 +15,10 @@ import {
   type MessageComponentInteraction,
   type ModalSubmitInteraction,
 } from 'discord.js';
+
+import { DiscordAdapter } from '../adapter/DiscordAdapter';
+import type { FlowCordAdapter } from '../adapter/FlowCordAdapter';
+import type { NormalizedComponentInteraction } from '../adapter/types';
 import type {
   MenuContext,
   MenuSessionLike,
@@ -34,11 +39,10 @@ import {
   type BehaviorPolicy,
   type InteractionBehavior,
 } from '../types/behavior';
-import type { HandleInteractionOptions } from './MenuEngine';
-import type { MenuEngine } from './MenuEngine';
-import type { FlowCordAdapter } from '../adapter/FlowCordAdapter';
-import { DiscordAdapter } from '../adapter/DiscordAdapter';
-import type { NormalizedComponentInteraction } from '../adapter/types';
+import type {
+  HandleInteractionOptions,
+  MenuEngine,
+} from './MenuEngine';
 
 /**
  * Returns true if a factory function is declared async.
@@ -73,6 +77,10 @@ export class MenuSession implements MenuSessionLike {
   private _currentMenu: MenuInstance | null = null;
   private _isCancelled = false;
   private _isCompleted = false;
+
+  private get _isDone(): boolean {
+    return this._isCancelled || this._isCompleted;
+  }
   private _sessionBehavior: BehaviorPolicy | undefined = undefined;
 
   /**
@@ -123,7 +131,7 @@ export class MenuSession implements MenuSessionLike {
   }
 
   get client(): Client<true> {
-    return this._commandInteraction.client as Client<true>;
+    return this._commandInteraction.client;
   }
 
   get currentMenu(): MenuInstance | null {
@@ -177,19 +185,22 @@ export class MenuSession implements MenuSessionLike {
       // explicit level (same priority as setEphemeral on the builder), since
       // we cannot read the definition before deferring.
       const entryBehavior =
-        interactionOptions?.entryEphemeral !== undefined
-          ? {
+        interactionOptions?.entryEphemeral === undefined
+          ? undefined
+          : {
               explicit: {
                 ephemeral: interactionOptions.entryEphemeral,
               },
-            }
-          : undefined;
+            };
+
       const behavior = resolveBehavior(
         entryBehavior,
         this._sessionBehavior,
         this._engine.globalBehavior,
       );
-      await this._adapter.deferReply({ ephemeral: behavior.ephemeral });
+      await this._adapter.deferReply({
+        ephemeral: behavior.ephemeral,
+      });
       await this.navigateTo(menuName, options);
     } else {
       // Sync factory: run it first so setEphemeral() on the builder is read,
@@ -210,7 +221,9 @@ export class MenuSession implements MenuSessionLike {
         this._sessionBehavior,
         this._engine.globalBehavior,
       );
-      await this._adapter.deferReply({ ephemeral: behavior.ephemeral });
+      await this._adapter.deferReply({
+        ephemeral: behavior.ephemeral,
+      });
       // Replicate the initial navigateTo steps (no previous menu to leave)
       this._currentOptions = options;
       const instance = new MenuInstance(definition, this.id);
@@ -316,47 +329,14 @@ export class MenuSession implements MenuSessionLike {
   async goBack(result?: unknown): Promise<void> {
     const entry = this._stack.pop();
     if (!entry) {
-      // Check for a fallback menu before closing
+      // Navigate to fallback WITHOUT pushing current menu to stack
+      // (prevents circular navigation when the menu was opened directly)
       const fallbackMenu = this._currentMenu?.definition.fallbackMenu;
-      const fallbackMenuOptions =
-        this._currentMenu?.definition.fallbackMenuOptions;
       if (fallbackMenu) {
-        // Navigate to fallback WITHOUT pushing current menu to stack
-        // (prevents circular navigation when the menu was opened directly)
-        const factory =
-          this._engine.menuRegistry.getFactory(fallbackMenu);
-        if (!factory) {
-          throw new Error(
-            `Fallback menu "${fallbackMenu}" is not registered.`,
-          );
-        }
-
-        if (this._currentMenu) {
-          const ctx = this.buildContext(this._currentMenu);
-          await this._lifecycleManager.emit(
-            'onLeave',
-            ctx,
-            this._currentMenu.definition.hooks,
-          );
-        }
-
-        this._currentOptions = fallbackMenuOptions;
-        const definition = await factory(this, fallbackMenuOptions);
-        const instance = new MenuInstance(definition, this.id);
-        this._currentMenu = instance;
-
-        if (definition.setup) {
-          const ctx = this.buildContext(instance);
-          await definition.setup(ctx);
-        }
-
-        const ctx = this.buildContext(instance);
-        await this._lifecycleManager.emit(
-          'onEnter',
-          ctx,
-          definition.hooks,
+        await this._activateFallbackMenu(
+          fallbackMenu,
+          this._currentMenu?.definition.fallbackMenuOptions,
         );
-        this._didNavigate = true;
         return;
       }
 
@@ -393,9 +373,7 @@ export class MenuSession implements MenuSessionLike {
 
     // Restore snapshotted state or run setup
     if (entry.stateSnapshot) {
-      instance.stateAccessor.reset(
-        entry.stateSnapshot as Record<string, unknown>,
-      );
+      instance.stateAccessor.reset(entry.stateSnapshot);
       if (entry.paginationSnapshot) {
         instance.paginationState = { ...entry.paginationSnapshot };
       }
@@ -418,6 +396,51 @@ export class MenuSession implements MenuSessionLike {
       await this.executeContinuations(completedMenuName, result, ctx);
     }
 
+    this._didNavigate = true;
+  }
+
+  /**
+   * Navigate to a fallback menu without pushing the current menu onto the
+   * history stack — prevents circular navigation when a menu was opened
+   * directly rather than navigated to from a parent.
+   */
+  private async _activateFallbackMenu(
+    fallbackMenu: string,
+    fallbackMenuOptions?: Record<string, unknown>,
+  ): Promise<void> {
+    const factory =
+      this._engine.menuRegistry.getFactory(fallbackMenu);
+    if (!factory) {
+      throw new Error(
+        `Fallback menu "${fallbackMenu}" is not registered.`,
+      );
+    }
+
+    if (this._currentMenu) {
+      const ctx = this.buildContext(this._currentMenu);
+      await this._lifecycleManager.emit(
+        'onLeave',
+        ctx,
+        this._currentMenu.definition.hooks,
+      );
+    }
+
+    this._currentOptions = fallbackMenuOptions;
+    const definition = await factory(this, fallbackMenuOptions);
+    const instance = new MenuInstance(definition, this.id);
+    this._currentMenu = instance;
+
+    if (definition.setup) {
+      const ctx = this.buildContext(instance);
+      await definition.setup(ctx);
+    }
+
+    const ctx = this.buildContext(instance);
+    await this._lifecycleManager.emit(
+      'onEnter',
+      ctx,
+      definition.hooks,
+    );
     this._didNavigate = true;
   }
 
@@ -517,10 +540,7 @@ export class MenuSession implements MenuSessionLike {
       ) => Promise<void>,
     });
 
-    await this.navigateTo(
-      menuId,
-      navOptions as Record<string, unknown>,
-    );
+    await this.navigateTo(menuId, navOptions);
   }
 
   /**
@@ -542,14 +562,14 @@ export class MenuSession implements MenuSessionLike {
    * customId parses to this session.
    */
   handleExternalInteraction(
-    interaction: MessageComponentInteraction,
+    _interaction: MessageComponentInteraction,
   ): void {
     // This is used by the engine for routing — the actual processing
     // happens in the main loop via awaitMessageComponent.
     // For now, external routing defers to the collector pattern.
     // The engine will call this when it intercepts interactions
     // that match this session's ID.
-    void interaction;
+    return;
   }
 
   // -----------------------------------------------------------------------
@@ -573,7 +593,7 @@ export class MenuSession implements MenuSessionLike {
   private async processMenus(): Promise<void> {
     const timeout = this._engine.timeout;
 
-    while (!this._isCancelled && !this._isCompleted) {
+    while (!this._isDone) {
       if (!this._currentMenu) break;
 
       // Reset navigation flags
@@ -581,24 +601,9 @@ export class MenuSession implements MenuSessionLike {
       this._didHardRefresh = false;
 
       // --- Pending modal (action triggered openModal in previous iteration) ---
-      // The interaction that triggered the modal already called showModal(),
-      // so we skip rendering and go straight to awaiting the modal submit.
-      if (
-        this._currentMenu.isModalActive &&
-        this._currentMenu.activeModal
-      ) {
-        const outcome = await this.awaitModalInteraction(timeout);
-        if (this._isCancelled || this._isCompleted) break;
-        if (this._didNavigate) {
-          // Strip display-level behaviors (ephemeral) from pending state —
-          // they belong to the source menu. Cleanup behaviors are preserved
-          // so the departing menu's cleanup applies when the destination renders.
-          this._renderer.clearDisplayBehaviors();
-          continue;
-        }
-        if (outcome === 'timeout') break;
-        continue; // Re-render after modal outcome
-      }
+      const modalDirective = await this._handlePendingModal(timeout);
+      if (modalDirective === 'break') break;
+      if (modalDirective === 'continue') continue;
 
       // --- Render cycle ---
       // Behavior is resolved inside renderCurrentMenu, incorporating any
@@ -606,33 +611,65 @@ export class MenuSession implements MenuSessionLike {
       await this.renderCurrentMenu();
 
       // Check if the session ended during rendering (e.g., onEnter navigated away)
-      if (this._isCancelled || this._isCompleted) break;
+      if (this._isDone) break;
       if (this._didNavigate) continue; // Navigation happened during hooks
 
       // --- Await interaction ---
-      const responseType = this._currentMenu.getResponseType();
-
-      if (responseType === 'message') {
-        await this.awaitMessageReply(timeout);
-      } else if (responseType === 'mixed') {
-        await this.awaitMixedInteraction(timeout);
-      } else {
-        await this.awaitComponentInteraction(timeout);
-      }
+      await this._awaitInteractionByType(timeout);
 
       // Check exit conditions after interaction
-      if (this._isCancelled || this._isCompleted) break;
+      if (this._isDone) break;
       if (this._didNavigate) {
         // Strip display-level behaviors (ephemeral) from pending state —
         // they belong to the source menu. Cleanup behaviors are preserved
         // so the departing menu's cleanup applies when the destination renders.
         this._renderer.clearDisplayBehaviors();
-        continue;
       }
-
-      // --- Auto-refresh (action stayed on same menu) ---
-      if (this._didHardRefresh) continue; // hardRefresh already replaced the menu, re-render from top
     }
+  }
+
+  private async _awaitInteractionByType(
+    timeout: number,
+  ): Promise<void> {
+    const responseType = this._currentMenu?.getResponseType();
+    if (responseType === 'message') {
+      await this.awaitMessageReply(timeout);
+    } else if (responseType === 'mixed') {
+      await this.awaitMixedInteraction(timeout);
+    } else {
+      await this.awaitComponentInteraction(timeout);
+    }
+  }
+
+  /**
+   * Handles a pending modal submission from the previous iteration.
+   * Returns 'break' when the loop should exit, 'continue' when it should
+   * skip to the next iteration, and 'next' when no modal was pending.
+   *
+   * The interaction that triggered the modal already called showModal(), so
+   * rendering is skipped and we go straight to awaiting the modal submit.
+   */
+  private async _handlePendingModal(
+    timeout: number,
+  ): Promise<'break' | 'continue' | 'next'> {
+    if (
+      !this._currentMenu?.isModalActive ||
+      !this._currentMenu.activeModal
+    ) {
+      return 'next';
+    }
+
+    const outcome = await this.awaitModalInteraction(timeout);
+    if (this._isDone) return 'break';
+    if (this._didNavigate) {
+      // Strip display-level behaviors (ephemeral) from pending state —
+      // they belong to the source menu. Cleanup behaviors are preserved
+      // so the departing menu's cleanup applies when the destination renders.
+      this._renderer.clearDisplayBehaviors();
+      return 'continue';
+    }
+    if (outcome === 'timeout') return 'break';
+    return 'continue'; // Re-render after modal outcome
   }
 
   /**
@@ -724,45 +761,7 @@ export class MenuSession implements MenuSessionLike {
         userId: this._commandInteraction.user.id,
         timeout,
       });
-
-      if (!this._currentMenu) return;
-
-      // Resolve departing cleanup for the current menu. The message-collection
-      // type default ('postAndStrip') sits below menuExplicit, so an explicit
-      // setMessageCleanup() on the menu still wins.
-      const messageHandlerBehavior =
-        this._currentMenu.definition.messageHandlerBehavior;
-      const departingBehavior = resolveBehavior(
-        this._currentMenu.definition.behavior,
-        this._sessionBehavior,
-        this._engine.globalBehavior,
-        messageHandlerBehavior,
-        {
-          messageCleanup: 'postAndStrip',
-        } satisfies InteractionBehavior,
-      );
-
-      // Delete the user's message if configured to do so (best-effort)
-      if (departingBehavior.deleteUserMessages) {
-        await normalizedMsg.delete();
-      }
-
-      // Forward resolved cleanup to the next render cycle.
-      // deleteUserMessages has already been actioned; no need to persist it.
-      this._renderer.setNextInteractionBehavior({
-        messageCleanup: departingBehavior.messageCleanup,
-        ephemeralFallbackDisposal:
-          departingBehavior.ephemeralFallbackDisposal,
-        closedMessage: departingBehavior.closedMessage,
-      });
-
-      const ctx = this.buildContext(this._currentMenu);
-      if (this._currentMenu.definition.handleMessage) {
-        await this._currentMenu.definition.handleMessage(
-          ctx,
-          normalizedMsg.content,
-        );
-      }
+      await this._processMessageResult(normalizedMsg);
     } catch {
       // Timeout
       this._isCompleted = true;
@@ -784,9 +783,10 @@ export class MenuSession implements MenuSessionLike {
       this._adapter
         .awaitComponent({ userId, timeout })
         .then((i) => ({ type: 'component' as const, normalized: i })),
-      this._adapter
-        .awaitMessage({ userId, timeout })
-        .then((m) => ({ type: 'message' as const, normalizedMsg: m })),
+      this._adapter.awaitMessage({ userId, timeout }).then((msg) => ({
+        type: 'message' as const,
+        normalizedMsg: msg,
+      })),
     ]).catch(() => null);
 
     if (!result) {
@@ -796,40 +796,51 @@ export class MenuSession implements MenuSessionLike {
 
     if (result.type === 'component') {
       await this.handleComponentInteraction(result.normalized.raw);
-    } else if (result.type === 'message' && this._currentMenu) {
-      // Resolve departing cleanup for the current menu (same as awaitMessageReply).
-      const messageHandlerBehavior =
-        this._currentMenu.definition.messageHandlerBehavior;
-      const departingBehavior = resolveBehavior(
-        this._currentMenu.definition.behavior,
-        this._sessionBehavior,
-        this._engine.globalBehavior,
-        messageHandlerBehavior,
-        {
-          messageCleanup: 'postAndStrip',
-        } satisfies InteractionBehavior,
-      );
+    } else if (result.type === 'message') {
+      await this._processMessageResult(result.normalizedMsg);
+    }
+  }
 
-      if (departingBehavior.deleteUserMessages) {
-        await result.normalizedMsg.delete();
-      }
+  /**
+   * Shared message-result handler: resolves departing behavior, optionally
+   * deletes the user message, forwards cleanup to the next render cycle,
+   * and dispatches to the menu's handleMessage handler.
+   */
+  private async _processMessageResult(
+    normalizedMsg: Awaited<
+      ReturnType<FlowCordAdapter['awaitMessage']>
+    >,
+  ): Promise<void> {
+    if (!this._currentMenu) return;
+    const menu = this._currentMenu;
 
-      // Forward resolved cleanup to the next render cycle.
-      // deleteUserMessages has already been actioned; no need to persist it.
-      this._renderer.setNextInteractionBehavior({
-        messageCleanup: departingBehavior.messageCleanup,
-        ephemeralFallbackDisposal:
-          departingBehavior.ephemeralFallbackDisposal,
-        closedMessage: departingBehavior.closedMessage,
-      });
+    // The 'postAndStrip' default sits below menuExplicit, so an explicit
+    // setMessageCleanup() on the menu still wins.
+    const departingBehavior = resolveBehavior(
+      menu.definition.behavior,
+      this._sessionBehavior,
+      this._engine.globalBehavior,
+      menu.definition.messageHandlerBehavior,
+      {
+        messageCleanup: 'postAndStrip',
+      } satisfies InteractionBehavior,
+    );
 
-      const ctx = this.buildContext(this._currentMenu);
-      if (this._currentMenu.definition.handleMessage) {
-        await this._currentMenu.definition.handleMessage(
-          ctx,
-          result.normalizedMsg.content,
-        );
-      }
+    if (departingBehavior.deleteUserMessages) {
+      await normalizedMsg.delete();
+    }
+
+    // deleteUserMessages has already been actioned; no need to persist it.
+    this._renderer.setNextInteractionBehavior({
+      messageCleanup: departingBehavior.messageCleanup,
+      ephemeralFallbackDisposal:
+        departingBehavior.ephemeralFallbackDisposal,
+      closedMessage: departingBehavior.closedMessage,
+    });
+
+    const ctx = this.buildContext(menu);
+    if (menu.definition.handleMessage) {
+      await menu.definition.handleMessage(ctx, normalizedMsg.content);
     }
   }
 
@@ -850,7 +861,9 @@ export class MenuSession implements MenuSessionLike {
       type: 'modal' | 'component' | 'message';
       raw?: ModalSubmitInteraction;
       normalized?: NormalizedComponentInteraction;
-      normalizedMsg?: Awaited<ReturnType<FlowCordAdapter['awaitMessage']>>;
+      normalizedMsg?: Awaited<
+        ReturnType<FlowCordAdapter['awaitMessage']>
+      >;
     }>[] = [
       this._adapter
         .awaitModal({ userId, timeout })
@@ -864,7 +877,10 @@ export class MenuSession implements MenuSessionLike {
       racers.push(
         this._adapter
           .awaitComponent({ userId, timeout })
-          .then((i) => ({ type: 'component' as const, normalized: i })),
+          .then((interaction) => ({
+            type: 'component' as const,
+            normalized: interaction,
+          })),
       );
     }
 
@@ -872,7 +888,10 @@ export class MenuSession implements MenuSessionLike {
       racers.push(
         this._adapter
           .awaitMessage({ userId, timeout })
-          .then((m) => ({ type: 'message' as const, normalizedMsg: m })),
+          .then((msg) => ({
+            type: 'message' as const,
+            normalizedMsg: msg,
+          })),
       );
     }
 
@@ -891,44 +910,8 @@ export class MenuSession implements MenuSessionLike {
     } else if (result.type === 'component' && result.normalized) {
       await this.handleComponentInteraction(result.normalized.raw);
       return 'component';
-    } else if (
-      result.type === 'message' &&
-      result.normalizedMsg &&
-      this._currentMenu
-    ) {
-      // Resolve departing cleanup for the current menu.
-      const messageHandlerBehavior =
-        this._currentMenu.definition.messageHandlerBehavior;
-      const departingBehavior = resolveBehavior(
-        this._currentMenu.definition.behavior,
-        this._sessionBehavior,
-        this._engine.globalBehavior,
-        messageHandlerBehavior,
-        {
-          messageCleanup: 'postAndStrip',
-        } satisfies InteractionBehavior,
-      );
-
-      if (departingBehavior.deleteUserMessages) {
-        await result.normalizedMsg.delete();
-      }
-
-      // Forward resolved cleanup to the next render cycle.
-      // deleteUserMessages has already been actioned; no need to persist it.
-      this._renderer.setNextInteractionBehavior({
-        messageCleanup: departingBehavior.messageCleanup,
-        ephemeralFallbackDisposal:
-          departingBehavior.ephemeralFallbackDisposal,
-        closedMessage: departingBehavior.closedMessage,
-      });
-
-      const ctx = this.buildContext(this._currentMenu);
-      if (this._currentMenu.definition.handleMessage) {
-        await this._currentMenu.definition.handleMessage(
-          ctx,
-          result.normalizedMsg.content,
-        );
-      }
+    } else if (result.type === 'message' && result.normalizedMsg) {
+      await this._processMessageResult(result.normalizedMsg);
       return 'message';
     }
 
@@ -1010,53 +993,9 @@ export class MenuSession implements MenuSessionLike {
       return;
     }
 
-    // --- Select menu handling (pass selected values to onSelect) ---
+    // --- Select menu handling ---
     if (interaction.isAnySelectMenu()) {
-      const onSelect =
-        this._currentMenu.resolveSelectAction(componentId) ??
-        this._currentMenu.activeSelect?.onSelect;
-      if (!onSelect) return;
-
-      // Resolve departing cleanup from the current menu's perspective,
-      // then forward display behaviors (ephemeral) raw and cleanup behaviors resolved.
-      const selectConfig =
-        this._currentMenu.getSelectConfig(componentId) ??
-        this._currentMenu.activeSelect ??
-        undefined;
-      const selectInteractionConfig = selectConfig?.behavior;
-      const selectDepartingBehavior = resolveBehavior(
-        this._currentMenu.definition.behavior,
-        this._sessionBehavior,
-        this._engine.globalBehavior,
-        selectInteractionConfig,
-      );
-      this._renderer.setNextInteractionBehavior({
-        ephemeral: selectInteractionConfig?.ephemeral,
-        messageCleanup: selectDepartingBehavior.messageCleanup,
-        ephemeralFallbackDisposal:
-          selectDepartingBehavior.ephemeralFallbackDisposal,
-        closedMessage: selectDepartingBehavior.closedMessage,
-        deleteUserMessages:
-          selectDepartingBehavior.deleteUserMessages,
-      });
-
-      const ctx = this.buildContext(this._currentMenu);
-
-      await this._lifecycleManager.emit(
-        'onAction',
-        ctx,
-        this._currentMenu.definition.hooks,
-      );
-
-      try {
-        await onSelect(ctx, interaction.values);
-      } catch (error) {
-        if (error instanceof GuardFailedError) {
-          ctx.state.set('__guardMessage', error.message);
-          return;
-        }
-        throw error;
-      }
+      await this._handleSelectInteraction(interaction, componentId);
       return;
     }
 
@@ -1093,60 +1032,90 @@ export class MenuSession implements MenuSessionLike {
       this._currentMenu.definition.hooks,
     );
 
-    // Modal trigger buttons: look up the target modal and show it
-    // on the raw (non-deferred) interaction.
     if (isModalButton) {
-      const modalId =
-        this._currentMenu.getModalIdForButton(componentId);
-      if (modalId) {
-        // Sets _activeModal and _isModalActive on the instance
-        await this._currentMenu.openModal(modalId);
-        const modal = this._currentMenu.activeModal;
-        if (modal) {
-          const normalizedTrigger: NormalizedComponentInteraction = {
-            customId: interaction.customId,
-            type: 'button',
-            userId: interaction.user.id,
-            deferUpdate: async () => {
-              if (!interaction.deferred && !interaction.replied) {
-                await interaction.deferUpdate();
-              }
-            },
-            raw: interaction,
-          };
-          await this._adapter.showModal(
-            modal.builder.toJSON(),
-            normalizedTrigger,
-          );
-          return;
-        }
-      }
-
-      // Modal button pressed but no matching modal was found.
-      // Defer the interaction to prevent Discord's "This interaction failed" timeout,
-      // then throw so the developer sees the configuration error.
-      if (!interaction.deferred && !interaction.replied) {
-        await interaction.deferUpdate();
-      }
-      throw new Error(
-        `[FlowCord] Menu "${this._currentMenu.definition.name}": Button "${componentId}" ` +
-          `is configured as a modal trigger but no matching modal was found ` +
-          `(modalId: "${
-            modalId ?? 'unknown'
-          }"). Ensure setModal() registers a modal with the correct ID.`,
-      );
+      await this._handleModalTrigger(interaction, componentId);
+      return;
     }
 
     await this.executeAction(action, ctx);
+    await this._showLegacyModal(interaction, componentId);
+  }
 
-    // Legacy openModal() action support: if the action set isModalActive,
-    // show the modal. The openModal() builtin knows how to look up the
-    // correct modal from the map and set _activeModal.
-    if (
-      this._currentMenu.isModalActive &&
-      this._currentMenu.activeModal
-    ) {
-      if (!interaction.deferred && !interaction.replied) {
+  /**
+   * Dispatch a select-menu interaction: resolves departing behavior, fires
+   * onAction, and calls the registered onSelect handler.
+   */
+  private async _handleSelectInteraction(
+    interaction: MessageComponentInteraction,
+    componentId: string,
+  ): Promise<void> {
+    if (!this._currentMenu) return;
+
+    const onSelect =
+      this._currentMenu.resolveSelectAction(componentId) ??
+      this._currentMenu.activeSelect?.onSelect;
+    if (!onSelect) return;
+
+    // Resolve departing cleanup from the current menu's perspective,
+    // then forward display behaviors (ephemeral) raw and cleanup behaviors resolved.
+    const selectConfig =
+      this._currentMenu.getSelectConfig(componentId) ??
+      this._currentMenu.activeSelect ??
+      undefined;
+    const selectInteractionConfig = selectConfig?.behavior;
+    const selectDepartingBehavior = resolveBehavior(
+      this._currentMenu.definition.behavior,
+      this._sessionBehavior,
+      this._engine.globalBehavior,
+      selectInteractionConfig,
+    );
+    this._renderer.setNextInteractionBehavior({
+      ephemeral: selectInteractionConfig?.ephemeral,
+      messageCleanup: selectDepartingBehavior.messageCleanup,
+      ephemeralFallbackDisposal:
+        selectDepartingBehavior.ephemeralFallbackDisposal,
+      closedMessage: selectDepartingBehavior.closedMessage,
+      deleteUserMessages: selectDepartingBehavior.deleteUserMessages,
+    });
+
+    const ctx = this.buildContext(this._currentMenu);
+    await this._lifecycleManager.emit(
+      'onAction',
+      ctx,
+      this._currentMenu.definition.hooks,
+    );
+
+    if (!interaction.isAnySelectMenu()) return;
+
+    try {
+      await onSelect(ctx, interaction.values);
+    } catch (error) {
+      if (error instanceof GuardFailedError) {
+        ctx.state.set('__guardMessage', error.message);
+        return;
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Show a declarative modal trigger button's modal on the raw (non-deferred)
+   * interaction. Throws a descriptive error when no matching modal is found so
+   * the developer sees the configuration mistake immediately.
+   */
+  private async _handleModalTrigger(
+    interaction: MessageComponentInteraction,
+    componentId: string,
+  ): Promise<void> {
+    if (!this._currentMenu) return;
+
+    const modalId =
+      this._currentMenu.getModalIdForButton(componentId);
+    if (modalId) {
+      // Sets _activeModal and _isModalActive on the instance
+      await this._currentMenu.openModal(modalId);
+      const modal = this._currentMenu.activeModal;
+      if (modal) {
         const normalizedTrigger: NormalizedComponentInteraction = {
           customId: interaction.customId,
           type: 'button',
@@ -1159,16 +1128,67 @@ export class MenuSession implements MenuSessionLike {
           raw: interaction,
         };
         await this._adapter.showModal(
-          this._currentMenu.activeModal.builder.toJSON(),
+          modal.builder.toJSON(),
           normalizedTrigger,
         );
-      } else {
-        this._currentMenu.isModalActive = false;
-        throw new Error(
-          `[FlowCord] Button "${componentId}" used openModal() action after the interaction was deferred. ` +
-            `Use opensModal on the button configuration so the framework can call showModal() on a raw interaction.`,
-        );
+        return;
       }
+    }
+
+    // Modal button pressed but no matching modal was found.
+    // Defer to prevent Discord's "This interaction failed" timeout,
+    // then throw so the developer sees the configuration error.
+    if (!interaction.deferred && !interaction.replied) {
+      await interaction.deferUpdate();
+    }
+    throw new Error(
+      `[FlowCord] Menu "${this._currentMenu.definition.name}": Button "${componentId}" ` +
+        `is configured as a modal trigger but no matching modal was found ` +
+        `(modalId: "${
+          modalId ?? 'unknown'
+        }"). Ensure setModal() registers a modal with the correct ID.`,
+    );
+  }
+
+  /**
+   * Legacy openModal() action support: if an action called openModal() and
+   * set isModalActive, show the modal on the raw interaction.
+   * Throws when the interaction was already deferred (developer error — they
+   * should use opensModal on the button config instead).
+   */
+  private async _showLegacyModal(
+    interaction: MessageComponentInteraction,
+    componentId: string,
+  ): Promise<void> {
+    if (
+      !this._currentMenu?.isModalActive ||
+      !this._currentMenu.activeModal
+    ) {
+      return;
+    }
+
+    if (!interaction.deferred && !interaction.replied) {
+      const normalizedTrigger: NormalizedComponentInteraction = {
+        customId: interaction.customId,
+        type: 'button',
+        userId: interaction.user.id,
+        deferUpdate: async () => {
+          if (!interaction.deferred && !interaction.replied) {
+            await interaction.deferUpdate();
+          }
+        },
+        raw: interaction,
+      };
+      await this._adapter.showModal(
+        this._currentMenu.activeModal.builder.toJSON(),
+        normalizedTrigger,
+      );
+    } else {
+      this._currentMenu.isModalActive = false;
+      throw new Error(
+        `[FlowCord] Button "${componentId}" used openModal() action after the interaction was deferred. ` +
+          `Use opensModal on the button configuration so the framework can call showModal() on a raw interaction.`,
+      );
     }
   }
 
@@ -1181,7 +1201,7 @@ export class MenuSession implements MenuSessionLike {
     if (!this._currentMenu) return;
 
     // Track the latest interaction so ctx.interaction stays current
-    this._latestInteraction = interaction as Interaction;
+    this._latestInteraction = interaction;
 
     // Defer the modal's reply so it doesn't timeout
     await interaction.deferUpdate();
@@ -1316,10 +1336,7 @@ export class MenuSession implements MenuSessionLike {
       sessionState: this.sessionState,
       client: this.client,
       interaction: this._latestInteraction,
-      options: (this._currentOptions ?? {}) as Record<
-        string,
-        unknown
-      >,
+      options: this._currentOptions ?? {},
       pagination: menuInstance.paginationState,
       env: 'discord',
 

@@ -130,9 +130,17 @@ export class MenuRenderer {
     let payload: NormalizedRenderPayload;
 
     if (newMode === 'embeds') {
-      payload = await this.buildEmbedsRender(menuInstance, ctx, behavior);
+      payload = await this.buildEmbedsRender(
+        menuInstance,
+        ctx,
+        behavior,
+      );
     } else {
-      payload = await this.buildLayoutRender(menuInstance, ctx, behavior);
+      payload = await this.buildLayoutRender(
+        menuInstance,
+        ctx,
+        behavior,
+      );
     }
 
     await adapter.sendPayload(payload);
@@ -433,22 +441,28 @@ export class MenuRenderer {
     );
     const layoutComponents = (
       discordComponents as Array<{ toJSON(): unknown }>
-    ).map((b) => b.toJSON());
+    ).map((component) => component.toJSON());
 
     // Pre-compute stripped layout (interactive elements removed) for postAndStrip disposal
     const strippedTree = this.stripLayoutInteractives(components);
     const strippedBuilders =
       strippedTree.length > 0
         ? this.serializeLayoutComponents(strippedTree, menuInstance)
-        : [new TextDisplayBuilder().setContent(behavior.closedMessage)];
+        : [
+            new TextDisplayBuilder().setContent(
+              behavior.closedMessage,
+            ),
+          ];
     const strippedLayoutComponents = (
       strippedBuilders as Array<{ toJSON(): unknown }>
-    ).map((b) => b.toJSON());
+    ).map((builder) => builder.toJSON());
 
     return {
       mode: 'layout',
-      layoutComponents: layoutComponents as NormalizedRenderPayload['layoutComponents'],
-      strippedLayoutComponents: strippedLayoutComponents as NormalizedRenderPayload['strippedLayoutComponents'],
+      layoutComponents:
+        layoutComponents as NormalizedRenderPayload['layoutComponents'],
+      strippedLayoutComponents:
+        strippedLayoutComponents as NormalizedRenderPayload['strippedLayoutComponents'],
       behavior: {
         messageCleanup: behavior.messageCleanup,
         ephemeral: behavior.ephemeral,
@@ -489,15 +503,16 @@ export class MenuRenderer {
 
     // Build content button rows (max 5 buttons per row)
     const contentButtons = buttons.filter(
-      (b) => !b.id?.startsWith('__reserved'),
+      (btn) => !btn.id?.startsWith('__reserved'),
     );
-    for (let i = 0; i < contentButtons.length; i += 5) {
-      const chunk = contentButtons.slice(i, i + 5);
+    for (let idx = 0; idx < contentButtons.length; idx += 5) {
+      const actionRowButtons = contentButtons.slice(idx, idx + 5);
       const row =
         new ActionRowBuilder<MessageActionRowComponentBuilder>();
-      for (let j = 0; j < chunk.length; j++) {
-        const btn = chunk[j];
-        row.addComponents(this.buildButtonBuilder(btn, menuInstance));
+      for (const button of actionRowButtons) {
+        row.addComponents(
+          this.buildButtonBuilder(button, menuInstance),
+        );
       }
       rows.push(row);
     }
@@ -996,4 +1011,3 @@ export class MenuRenderer {
     }
   }
 }
-

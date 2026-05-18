@@ -19,6 +19,8 @@ import type {
   MessageComponentInteraction,
   ModalSubmitInteraction,
 } from 'discord.js';
+
+import type { ResolvedBehavior } from '../types/behavior';
 import type { RenderMode } from '../types/common';
 
 // ---------------------------------------------------------------------------
@@ -31,13 +33,7 @@ import type { RenderMode } from '../types/common';
  * - DiscordAdapter knows which disposal mode to apply
  * - SimulatedAdapter captures the resolved behavior for test assertions
  */
-export interface NormalizedRenderBehavior {
-  messageCleanup: 'edit' | 'postAndDelete' | 'postAndStrip' | 'postAndReplace';
-  ephemeral: boolean;
-  ephemeralFallbackDisposal: 'strip' | 'replace';
-  closedMessage: string;
-  deleteUserMessages: boolean;
-}
+export type NormalizedRenderBehavior = ResolvedBehavior;
 
 // ---------------------------------------------------------------------------
 // Normalized render payload
@@ -68,6 +64,11 @@ export interface NormalizedRenderPayload {
   /** Resolved behavior for this render cycle */
   behavior: NormalizedRenderBehavior;
 }
+
+export type NormalizedTerminalReason =
+  | 'closed'
+  | 'cancelled'
+  | 'timeout';
 
 /**
  * JSON-serializable terminal state payload (closed / cancelled / timeout).

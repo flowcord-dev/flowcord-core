@@ -1,6 +1,9 @@
 export type { FlowCordAdapter } from './FlowCordAdapter';
 export { DiscordAdapter } from './DiscordAdapter';
-export { SimulatedAdapter, SimulatedTimeoutError } from './SimulatedAdapter';
+export {
+  SimulatedAdapter,
+  SimulatedTimeoutError,
+} from './SimulatedAdapter';
 export type {
   AwaitOptions,
   NormalizedComponentInteraction,
@@ -11,4 +14,5 @@ export type {
   NormalizedRenderPayload,
   NormalizedSelectComponent,
   NormalizedTerminalPayload,
+  NormalizedTerminalReason,
 } from './types';

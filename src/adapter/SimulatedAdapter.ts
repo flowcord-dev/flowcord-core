@@ -20,12 +20,15 @@ import type {
   NormalizedModalSubmission,
   NormalizedRenderPayload,
   NormalizedTerminalPayload,
+  NormalizedTerminalReason,
 } from './types';
 import type { RenderMode } from '../types/common';
 
 /** Thrown when an InteractionQueue times out waiting for an item. */
 export class SimulatedTimeoutError extends Error {
-  constructor(message = 'SimulatedAdapter queue timed out waiting for interaction') {
+  constructor(
+    message = 'SimulatedAdapter queue timed out waiting for interaction',
+  ) {
     super(message);
     this.name = 'SimulatedTimeoutError';
   }
@@ -49,13 +52,8 @@ class InteractionQueue<T> {
   enqueue(item: T): void {
     if (this._waiting) {
       const resolve = this._waiting;
-      const reject = this._waitingReject;
       this._waiting = null;
       this._waitingReject = null;
-      if (reject) {
-        // Clear the timeout by resolving (reject is only called on timeout)
-        void reject; // intentional no-op — timeout cleared implicitly
-      }
       resolve(item);
     } else {
       this._queue.push(item);
@@ -98,22 +96,22 @@ export class SimulatedAdapter implements FlowCordAdapter {
   readonly terminals: NormalizedTerminalPayload[] = [];
 
   private _activeMessageMode: RenderMode | null = null;
-  private _renderListeners: Array<() => void> = [];
-  private _endResolve!: (reason: 'closed' | 'cancelled' | 'timeout') => void;
+  private _endResolve!: (reason: NormalizedTerminalReason) => void;
 
   /** Resolves when sendTerminalPayload() is called. */
-  readonly endPromise: Promise<'closed' | 'cancelled' | 'timeout'>;
+  readonly endPromise: Promise<NormalizedTerminalReason>;
 
   private readonly _componentQueue: InteractionQueue<NormalizedComponentInteraction>;
   private readonly _messageQueue: InteractionQueue<NormalizedMessage>;
   private readonly _modalQueue: InteractionQueue<NormalizedModalSubmission>;
+  private readonly _renderListeners: Array<() => void> = [];
 
   constructor(options: { safetyTimeout?: number } = {}) {
     const safetyTimeout = options.safetyTimeout ?? 5000;
     this._componentQueue = new InteractionQueue(safetyTimeout);
     this._messageQueue = new InteractionQueue(safetyTimeout);
     this._modalQueue = new InteractionQueue(safetyTimeout);
-    this.endPromise = new Promise<'closed' | 'cancelled' | 'timeout'>(
+    this.endPromise = new Promise<NormalizedTerminalReason>(
       (resolve) => {
         this._endResolve = resolve;
       },
@@ -151,7 +149,9 @@ export class SimulatedAdapter implements FlowCordAdapter {
     }
   }
 
-  awaitComponent(options: AwaitOptions): Promise<NormalizedComponentInteraction> {
+  awaitComponent(
+    options: AwaitOptions,
+  ): Promise<NormalizedComponentInteraction> {
     return this._componentQueue.dequeue(options);
   }
 
@@ -170,7 +170,9 @@ export class SimulatedAdapter implements FlowCordAdapter {
     // The test enqueues a modal submission via enqueueModalSubmit().
   }
 
-  awaitModal(options: AwaitOptions): Promise<NormalizedModalSubmission> {
+  awaitModal(
+    options: AwaitOptions,
+  ): Promise<NormalizedModalSubmission> {
     return this._modalQueue.dequeue(options);
   }
 
@@ -205,7 +207,9 @@ export class SimulatedAdapter implements FlowCordAdapter {
   /**
    * Enqueue a component interaction to be returned by the next awaitComponent() call.
    */
-  enqueueComponent(interaction: NormalizedComponentInteraction): void {
+  enqueueComponent(
+    interaction: NormalizedComponentInteraction,
+  ): void {
     this._componentQueue.enqueue(interaction);
   }
 

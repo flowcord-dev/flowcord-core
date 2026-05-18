@@ -46,7 +46,9 @@ export interface FlowCordAdapter {
    * Resolves with the normalized interaction wrapper.
    * Rejects or resolves with a sentinel when timeout is reached.
    */
-  awaitComponent(options: AwaitOptions): Promise<NormalizedComponentInteraction>;
+  awaitComponent(
+    options: AwaitOptions,
+  ): Promise<NormalizedComponentInteraction>;
 
   /**
    * Wait for the next text message from the user (message collection mode).
@@ -65,11 +67,15 @@ export interface FlowCordAdapter {
   /**
    * Wait for the user to submit the modal (or dismiss it).
    */
-  awaitModal(options: AwaitOptions): Promise<NormalizedModalSubmission>;
+  awaitModal(
+    options: AwaitOptions,
+  ): Promise<NormalizedModalSubmission>;
 
   /**
    * Send the terminal state (closed / cancelled / timeout).
    * Called once when the session loop exits.
    */
-  sendTerminalPayload(payload: NormalizedTerminalPayload): Promise<void>;
+  sendTerminalPayload(
+    payload: NormalizedTerminalPayload,
+  ): Promise<void>;
 }

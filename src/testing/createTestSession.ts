@@ -66,7 +66,7 @@ export function createTestSession(
   const eventLog = new EventLog();
 
   const engine = new MenuEngine({
-    client: client as unknown as import('../FlowCordClient').FlowCordClient,
+    client,
     timeout: safetyTimeout,
     behavior: options.behavior,
   });

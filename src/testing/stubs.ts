@@ -9,10 +9,7 @@
  * Used by createTestSession() to wire up MenuSession/MenuEngine without
  * any real Discord.js infrastructure.
  */
-import type {
-  ChatInputCommandInteraction,
-  Client,
-} from 'discord.js';
+import type { ChatInputCommandInteraction, Client } from 'discord.js';
 
 /**
  * Build a stub ChatInputCommandInteraction for test sessions.
