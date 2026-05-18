@@ -838,8 +838,17 @@ export class MenuSession implements MenuSessionLike {
         timeout,
       });
       await this._processMessageResult(normalizedMsg);
-    } catch {
-      await this._timeout();
+    } catch (err) {
+      // Discord.js awaitMessages rejects with a Collection (not an Error) on
+      // timeout. SimulatedTimeoutError is an Error whose message contains 'time'.
+      // Any other Error instance is a real failure (e.g. unsupported channel).
+      const isTimeout =
+        !(err instanceof Error) || err.message.includes('time');
+      if (isTimeout) {
+        await this._timeout();
+      } else {
+        throw err;
+      }
     }
   }
 
