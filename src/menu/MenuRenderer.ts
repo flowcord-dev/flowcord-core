@@ -120,7 +120,7 @@ export class MenuRenderer {
     ctx: MenuContext,
     adapter: FlowCordAdapter,
     behavior: ResolvedBehavior,
-  ): Promise<void> {
+  ): Promise<NormalizedRenderPayload> {
     const definition = menuInstance.definition;
     const newMode = definition.mode;
 
@@ -144,6 +144,7 @@ export class MenuRenderer {
     }
 
     await adapter.sendPayload(payload);
+    return payload;
   }
 
   // -----------------------------------------------------------------------

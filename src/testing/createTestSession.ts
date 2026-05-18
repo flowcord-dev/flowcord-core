@@ -82,7 +82,7 @@ export function createTestSession(
     menuName: string,
     menuOptions?: Record<string, unknown>,
   ): Promise<void> {
-    const session = engine.createSession(interaction, adapter);
+    const session = engine.createSession(interaction, adapter, eventLog);
 
     // Seed initial session state before the loop starts
     if (options.initialSessionState) {

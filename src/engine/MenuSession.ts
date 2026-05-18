@@ -3,8 +3,6 @@
  *
  * Manages the interaction loop lifecycle, state, navigation stack,
  * and delegates rendering/lifecycle to appropriate managers.
- *
- * Manages the interaction loop lifecycle, state, navigation stack,
  */
 import { randomUUID } from 'node:crypto';
 
@@ -18,7 +16,12 @@ import {
 
 import { DiscordAdapter } from '../adapter/DiscordAdapter';
 import type { FlowCordAdapter } from '../adapter/FlowCordAdapter';
-import type { NormalizedComponentInteraction } from '../adapter/types';
+import type {
+  NormalizedComponentInteraction,
+  NormalizedTerminalPayload,
+} from '../adapter/types';
+import { EventLog, type SessionEvent } from '../tracing/EventLog';
+import type { HookName, MenuHooks } from '../lifecycle/hooks';
 import type {
   MenuContext,
   MenuSessionLike,
@@ -82,6 +85,7 @@ export class MenuSession implements MenuSessionLike {
     return this._isCancelled || this._isCompleted;
   }
   private _sessionBehavior: BehaviorPolicy | undefined = undefined;
+  private readonly _eventLog: EventLog | undefined;
 
   /**
    * Tracks whether navigation happened during the current action.
@@ -115,6 +119,7 @@ export class MenuSession implements MenuSessionLike {
     engine: MenuEngine,
     interaction: ChatInputCommandInteraction,
     adapter?: FlowCordAdapter,
+    eventLog?: EventLog,
   ) {
     this.id = randomUUID().slice(0, 12);
     this.sessionState = new StateStore();
@@ -125,6 +130,7 @@ export class MenuSession implements MenuSessionLike {
     this._renderer = new MenuRenderer();
     this._lifecycleManager = new LifecycleManager();
     this._latestInteraction = interaction;
+    this._eventLog = eventLog;
 
     // Apply global hooks from the engine's HookRegistry
     engine.hookRegistry.applyTo(this._lifecycleManager);
@@ -233,11 +239,7 @@ export class MenuSession implements MenuSessionLike {
         await definition.setup(ctx);
       }
       const ctx = this.buildContext(instance);
-      await this._lifecycleManager.emit(
-        'onEnter',
-        ctx,
-        definition.hooks,
-      );
+      await this._emitHook('onEnter', ctx, definition.hooks);
       this._didNavigate = true;
     }
 
@@ -254,6 +256,7 @@ export class MenuSession implements MenuSessionLike {
     menuId: string,
     options?: Record<string, unknown>,
   ): Promise<void> {
+    const previousMenuId = this._currentMenu?.name ?? null;
     const factory = this._engine.menuRegistry.getFactory(menuId);
     if (!factory) {
       throw new Error(`Menu "${menuId}" is not registered.`);
@@ -282,7 +285,7 @@ export class MenuSession implements MenuSessionLike {
     // Fire onLeave on current menu
     if (this._currentMenu) {
       const ctx = this.buildContext(this._currentMenu);
-      await this._lifecycleManager.emit(
+      await this._emitHook(
         'onLeave',
         ctx,
         this._currentMenu.definition.hooks,
@@ -314,12 +317,14 @@ export class MenuSession implements MenuSessionLike {
 
     // Fire onEnter
     const ctx = this.buildContext(instance);
-    await this._lifecycleManager.emit(
-      'onEnter',
-      ctx,
-      definition.hooks,
-    );
+    await this._emitHook('onEnter', ctx, definition.hooks);
 
+    this._emitEvent({
+      kind: 'navigation',
+      from: previousMenuId,
+      to: menuId,
+      timestamp: Date.now(),
+    });
     this._didNavigate = true;
   }
 
@@ -327,6 +332,7 @@ export class MenuSession implements MenuSessionLike {
    * Go back to the previous menu on the stack.
    */
   async goBack(result?: unknown): Promise<void> {
+    const previousMenuId = this._currentMenu?.name ?? null;
     const entry = this._stack.pop();
     if (!entry) {
       // Navigate to fallback WITHOUT pushing current menu to stack
@@ -349,7 +355,7 @@ export class MenuSession implements MenuSessionLike {
     // Fire onLeave on current
     if (this._currentMenu) {
       const ctx = this.buildContext(this._currentMenu);
-      await this._lifecycleManager.emit(
+      await this._emitHook(
         'onLeave',
         ctx,
         this._currentMenu.definition.hooks,
@@ -385,11 +391,14 @@ export class MenuSession implements MenuSessionLike {
 
     // Fire onEnter
     const ctx = this.buildContext(instance);
-    await this._lifecycleManager.emit(
-      'onEnter',
-      ctx,
-      definition.hooks,
-    );
+    await this._emitHook('onEnter', ctx, definition.hooks);
+
+    this._emitEvent({
+      kind: 'navigation',
+      from: previousMenuId,
+      to: entry.menuId,
+      timestamp: Date.now(),
+    });
 
     // Execute continuations from sub-menu completion
     if (completedMenuName) {
@@ -408,6 +417,7 @@ export class MenuSession implements MenuSessionLike {
     fallbackMenu: string,
     fallbackMenuOptions?: Record<string, unknown>,
   ): Promise<void> {
+    const previousMenuId = this._currentMenu?.name ?? null;
     const factory =
       this._engine.menuRegistry.getFactory(fallbackMenu);
     if (!factory) {
@@ -418,7 +428,7 @@ export class MenuSession implements MenuSessionLike {
 
     if (this._currentMenu) {
       const ctx = this.buildContext(this._currentMenu);
-      await this._lifecycleManager.emit(
+      await this._emitHook(
         'onLeave',
         ctx,
         this._currentMenu.definition.hooks,
@@ -436,11 +446,14 @@ export class MenuSession implements MenuSessionLike {
     }
 
     const ctx = this.buildContext(instance);
-    await this._lifecycleManager.emit(
-      'onEnter',
-      ctx,
-      definition.hooks,
-    );
+    await this._emitHook('onEnter', ctx, definition.hooks);
+
+    this._emitEvent({
+      kind: 'navigation',
+      from: previousMenuId,
+      to: fallbackMenu,
+      timestamp: Date.now(),
+    });
     this._didNavigate = true;
   }
 
@@ -450,7 +463,7 @@ export class MenuSession implements MenuSessionLike {
   async close(): Promise<void> {
     if (this._currentMenu) {
       const ctx = this.buildContext(this._currentMenu);
-      await this._lifecycleManager.emit(
+      await this._emitHook(
         'onLeave',
         ctx,
         this._currentMenu.definition.hooks,
@@ -461,10 +474,17 @@ export class MenuSession implements MenuSessionLike {
       this._sessionBehavior,
       this._engine.globalBehavior,
     );
-    await this._adapter.sendTerminalPayload({
+    const closePayload: NormalizedTerminalPayload = {
       reason: 'closed',
       content: closeBehavior.closedMessage,
       mode: this._adapter.activeMessageMode ?? 'embeds',
+    };
+    await this._adapter.sendTerminalPayload(closePayload);
+    this._emitEvent({
+      kind: 'session:end',
+      reason: 'closed',
+      payload: closePayload,
+      timestamp: Date.now(),
     });
     this._isCompleted = true;
   }
@@ -475,12 +495,12 @@ export class MenuSession implements MenuSessionLike {
   async cancel(): Promise<void> {
     if (this._currentMenu) {
       const ctx = this.buildContext(this._currentMenu);
-      await this._lifecycleManager.emit(
+      await this._emitHook(
         'onCancel',
         ctx,
         this._currentMenu.definition.hooks,
       );
-      await this._lifecycleManager.emit(
+      await this._emitHook(
         'onLeave',
         ctx,
         this._currentMenu.definition.hooks,
@@ -491,10 +511,17 @@ export class MenuSession implements MenuSessionLike {
       this._sessionBehavior,
       this._engine.globalBehavior,
     );
-    await this._adapter.sendTerminalPayload({
+    const cancelPayload: NormalizedTerminalPayload = {
       reason: 'cancelled',
       content: cancelBehavior.closedMessage,
       mode: this._adapter.activeMessageMode ?? 'embeds',
+    };
+    await this._adapter.sendTerminalPayload(cancelPayload);
+    this._emitEvent({
+      kind: 'session:end',
+      reason: 'cancelled',
+      payload: cancelPayload,
+      timestamp: Date.now(),
     });
     this._isCancelled = true;
   }
@@ -570,6 +597,41 @@ export class MenuSession implements MenuSessionLike {
     // The engine will call this when it intercepts interactions
     // that match this session's ID.
     return;
+  }
+
+  // -----------------------------------------------------------------------
+  // Event logging helpers
+  // -----------------------------------------------------------------------
+
+  private _emitEvent(event: SessionEvent): void {
+    this._eventLog?.record(event);
+  }
+
+  private async _emitHook(
+    name: HookName,
+    ctx: MenuContext,
+    menuHooks?: MenuHooks,
+  ): Promise<void> {
+    await this._lifecycleManager.emit(name, ctx, menuHooks);
+    this._emitEvent({
+      kind: 'hook',
+      menuId: ctx.menu.name,
+      hookName: name,
+      timestamp: Date.now(),
+    });
+  }
+
+  private _emitTimeout(): void {
+    this._emitEvent({
+      kind: 'session:end',
+      reason: 'timeout',
+      payload: {
+        reason: 'timeout',
+        content: '',
+        mode: this._adapter.activeMessageMode ?? 'embeds',
+      },
+      timestamp: Date.now(),
+    });
   }
 
   // -----------------------------------------------------------------------
@@ -697,22 +759,28 @@ export class MenuSession implements MenuSessionLike {
     const ctx = this.buildContext(this._currentMenu);
 
     // beforeRender hook
-    await this._lifecycleManager.emit(
+    await this._emitHook(
       'beforeRender',
       ctx,
       this._currentMenu.definition.hooks,
     );
 
     // Delegate to renderer (calls setters, builds payload, sends message)
-    await this._renderer.render(
+    const renderPayload = await this._renderer.render(
       this._currentMenu,
       ctx,
       this._adapter,
       behavior,
     );
+    this._emitEvent({
+      kind: 'render',
+      menuId: this._currentMenu.name,
+      payload: renderPayload,
+      timestamp: Date.now(),
+    });
 
     // afterRender hook
-    await this._lifecycleManager.emit(
+    await this._emitHook(
       'afterRender',
       ctx,
       this._currentMenu.definition.hooks,
@@ -745,6 +813,7 @@ export class MenuSession implements MenuSessionLike {
         (error.message.includes('time') ||
           error.message.includes('Collector'));
       if (isTimeout) {
+        this._emitTimeout();
         this._isCompleted = true;
       } else {
         throw error;
@@ -764,6 +833,7 @@ export class MenuSession implements MenuSessionLike {
       await this._processMessageResult(normalizedMsg);
     } catch {
       // Timeout
+      this._emitTimeout();
       this._isCompleted = true;
     }
   }
@@ -790,6 +860,7 @@ export class MenuSession implements MenuSessionLike {
     ]).catch(() => null);
 
     if (!result) {
+      this._emitTimeout();
       this._isCompleted = true;
       return;
     }
@@ -1026,11 +1097,17 @@ export class MenuSession implements MenuSessionLike {
     const ctx = this.buildContext(this._currentMenu);
 
     // onAction hook fires before the action itself
-    await this._lifecycleManager.emit(
+    await this._emitHook(
       'onAction',
       ctx,
       this._currentMenu.definition.hooks,
     );
+    this._emitEvent({
+      kind: 'action',
+      menuId: this._currentMenu.name,
+      componentId,
+      timestamp: Date.now(),
+    });
 
     if (isModalButton) {
       await this._handleModalTrigger(interaction, componentId);
@@ -1079,11 +1156,17 @@ export class MenuSession implements MenuSessionLike {
     });
 
     const ctx = this.buildContext(this._currentMenu);
-    await this._lifecycleManager.emit(
+    await this._emitHook(
       'onAction',
       ctx,
       this._currentMenu.definition.hooks,
     );
+    this._emitEvent({
+      kind: 'action',
+      menuId: this._currentMenu.name,
+      componentId,
+      timestamp: Date.now(),
+    });
 
     if (!interaction.isAnySelectMenu()) return;
 
@@ -1131,6 +1214,11 @@ export class MenuSession implements MenuSessionLike {
           modal.builder.toJSON(),
           normalizedTrigger,
         );
+        this._emitEvent({
+          kind: 'modal:shown',
+          menuId: this._currentMenu?.name ?? 'unknown',
+          timestamp: Date.now(),
+        });
         return;
       }
     }
@@ -1183,6 +1271,11 @@ export class MenuSession implements MenuSessionLike {
         this._currentMenu.activeModal.builder.toJSON(),
         normalizedTrigger,
       );
+      this._emitEvent({
+        kind: 'modal:shown',
+        menuId: this._currentMenu.name,
+        timestamp: Date.now(),
+      });
     } else {
       this._currentMenu.isModalActive = false;
       throw new Error(
@@ -1205,6 +1298,12 @@ export class MenuSession implements MenuSessionLike {
 
     // Defer the modal's reply so it doesn't timeout
     await interaction.deferUpdate();
+
+    this._emitEvent({
+      kind: 'modal:submit',
+      menuId: this._currentMenu.name,
+      timestamp: Date.now(),
+    });
 
     const modalConfig = this._currentMenu.activeModal;
     if (!modalConfig) return;
@@ -1267,7 +1366,7 @@ export class MenuSession implements MenuSessionLike {
     }
 
     const ctx = this.buildContext(this._currentMenu);
-    await this._lifecycleManager.emit(
+    await this._emitHook(
       'onNext',
       ctx,
       this._currentMenu.definition.hooks,
@@ -1285,7 +1384,7 @@ export class MenuSession implements MenuSessionLike {
     }
 
     const ctx = this.buildContext(this._currentMenu);
-    await this._lifecycleManager.emit(
+    await this._emitHook(
       'onPrevious',
       ctx,
       this._currentMenu.definition.hooks,

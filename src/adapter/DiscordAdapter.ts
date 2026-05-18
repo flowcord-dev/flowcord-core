@@ -268,11 +268,8 @@ export class DiscordAdapter implements FlowCordAdapter {
     options: AwaitOptions,
   ): Promise<NormalizedModalSubmission> {
     // awaitModalSubmit is called on the component interaction that triggered the modal.
-    // This is stored in MenuSession._modalShowInteraction and passed through the adapter.
-    // Since we don't have direct access here, MenuSession manages this via the
-    // _modalShowInteraction field and calls awaitModal only when appropriate.
-    // The DiscordAdapter receives the trigger interaction via showModal() — we need
-    // to store it so awaitModal can call awaitModalSubmit on it.
+    // The trigger interaction is stored by showModal() in _pendingModalInteraction
+    // so awaitModal can call awaitModalSubmit on it.
     if (!this._pendingModalInteraction) {
       throw new Error(
         'No pending modal interaction to await submit on',
