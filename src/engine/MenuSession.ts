@@ -621,17 +621,25 @@ export class MenuSession implements MenuSessionLike {
     });
   }
 
-  private _emitTimeout(): void {
+  private async _timeout(): Promise<void> {
+    const timeoutBehavior = resolveBehavior(
+      this._currentMenu?.definition.behavior,
+      this._sessionBehavior,
+      this._engine.globalBehavior,
+    );
+    const timeoutPayload: NormalizedTerminalPayload = {
+      reason: 'timeout',
+      content: timeoutBehavior.timeoutMessage,
+      mode: this._adapter.activeMessageMode ?? 'embeds',
+    };
+    await this._adapter.sendTerminalPayload(timeoutPayload);
     this._emitEvent({
       kind: 'session:end',
       reason: 'timeout',
-      payload: {
-        reason: 'timeout',
-        content: '',
-        mode: this._adapter.activeMessageMode ?? 'embeds',
-      },
+      payload: timeoutPayload,
       timestamp: Date.now(),
     });
+    this._isCompleted = true;
   }
 
   // -----------------------------------------------------------------------
@@ -813,8 +821,7 @@ export class MenuSession implements MenuSessionLike {
         (error.message.includes('time') ||
           error.message.includes('Collector'));
       if (isTimeout) {
-        this._emitTimeout();
-        this._isCompleted = true;
+        await this._timeout();
       } else {
         throw error;
       }
@@ -832,9 +839,7 @@ export class MenuSession implements MenuSessionLike {
       });
       await this._processMessageResult(normalizedMsg);
     } catch {
-      // Timeout
-      this._emitTimeout();
-      this._isCompleted = true;
+      await this._timeout();
     }
   }
 
@@ -860,8 +865,7 @@ export class MenuSession implements MenuSessionLike {
     ]).catch(() => null);
 
     if (!result) {
-      this._emitTimeout();
-      this._isCompleted = true;
+      await this._timeout();
       return;
     }
 

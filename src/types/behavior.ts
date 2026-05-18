@@ -10,6 +10,7 @@
  * - ephemeralFallbackDisposal: fallback when messageCleanup is 'postAndDelete' but message is ephemeral
  * - closedMessage: the string shown when messageCleanup is 'postAndReplace'
  * - deleteUserMessages: whether to delete the user's typed message after setMessageHandler collects it
+ * - timeoutMessage: the string shown when the session ends due to inactivity
  *
  * Designed for extension: additional behaviors are added as new optional
  * fields here without changing the policy structure.
@@ -57,6 +58,12 @@ export interface BehaviorConfig {
    * Defaults to false.
    */
   deleteUserMessages?: boolean;
+
+  /**
+   * The message content shown when the session ends due to inactivity (timeout).
+   * Defaults to '*This interaction has timed out.*'.
+   */
+  timeoutMessage?: string;
 }
 
 /**
@@ -129,6 +136,7 @@ export interface ResolvedBehavior {
   ephemeralFallbackDisposal: 'strip' | 'replace';
   closedMessage: string;
   deleteUserMessages: boolean;
+  timeoutMessage: string;
 }
 
 /**
@@ -194,6 +202,15 @@ export function resolveBehavior(
       sessionPolicy,
       globalPolicy,
       false,
+      interactionBehavior,
+      interactionTypeDefaults,
+    ),
+    timeoutMessage: resolveField(
+      'timeoutMessage',
+      builderBehavior,
+      sessionPolicy,
+      globalPolicy,
+      '*This interaction has timed out.*',
       interactionBehavior,
       interactionTypeDefaults,
     ),

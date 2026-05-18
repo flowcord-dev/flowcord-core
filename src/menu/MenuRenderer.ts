@@ -355,6 +355,7 @@ export class MenuRenderer {
         ephemeralFallbackDisposal: behavior.ephemeralFallbackDisposal,
         closedMessage: behavior.closedMessage,
         deleteUserMessages: behavior.deleteUserMessages,
+        timeoutMessage: behavior.timeoutMessage,
       },
     };
   }
@@ -470,6 +471,7 @@ export class MenuRenderer {
         ephemeralFallbackDisposal: behavior.ephemeralFallbackDisposal,
         closedMessage: behavior.closedMessage,
         deleteUserMessages: behavior.deleteUserMessages,
+        timeoutMessage: behavior.timeoutMessage,
       },
     };
   }
