@@ -86,6 +86,7 @@ function embedsPayload(overrides: Partial<NormalizedRenderPayload> = {}): Normal
       ephemeralFallbackDisposal: 'strip',
       closedMessage: 'Menu closed.',
       deleteUserMessages: false,
+      timeoutMessage: '*This interaction has timed out.*',
     },
     ...overrides,
   };
@@ -102,6 +103,7 @@ function layoutPayload(overrides: Partial<NormalizedRenderPayload> = {}): Normal
       ephemeralFallbackDisposal: 'strip',
       closedMessage: 'Menu closed.',
       deleteUserMessages: false,
+      timeoutMessage: '*This interaction has timed out.*',
     },
     ...overrides,
   };
@@ -225,7 +227,7 @@ describe('sendPayload — postAndDelete cleanup', () => {
 
     // Second render with postAndDelete
     await adapter.sendPayload(
-      embedsPayload({ behavior: { messageCleanup: 'postAndDelete', ephemeral: false, ephemeralFallbackDisposal: 'strip', closedMessage: 'closed', deleteUserMessages: false } }),
+      embedsPayload({ behavior: { messageCleanup: 'postAndDelete', ephemeral: false, ephemeralFallbackDisposal: 'strip', closedMessage: 'closed', deleteUserMessages: false, timeoutMessage: '*This interaction has timed out.*' } }),
     );
 
     const firstMessage = await (interaction.editReply as jest.Mock).mock.results[0]?.value;
@@ -246,7 +248,7 @@ describe('sendPayload — postAndStrip cleanup', () => {
     await adapter.sendPayload(embedsPayload());
 
     await adapter.sendPayload(
-      embedsPayload({ behavior: { messageCleanup: 'postAndStrip', ephemeral: false, ephemeralFallbackDisposal: 'strip', closedMessage: 'closed', deleteUserMessages: false } }),
+      embedsPayload({ behavior: { messageCleanup: 'postAndStrip', ephemeral: false, ephemeralFallbackDisposal: 'strip', closedMessage: 'closed', deleteUserMessages: false, timeoutMessage: '*This interaction has timed out.*' } }),
     );
 
     const firstMessage = await (interaction.editReply as jest.Mock).mock.results[0]?.value;
@@ -419,7 +421,7 @@ describe('_editEphemeralMessage', () => {
     // Ephemeral is established by deferReply — editReply does NOT re-add the flag.
     // Discord already knows the reply is ephemeral from the initial defer.
     await adapter.deferReply({ ephemeral: true });
-    await adapter.sendPayload(embedsPayload({ behavior: { messageCleanup: 'edit', ephemeral: true, ephemeralFallbackDisposal: 'strip', closedMessage: 'closed', deleteUserMessages: false } }));
+    await adapter.sendPayload(embedsPayload({ behavior: { messageCleanup: 'edit', ephemeral: true, ephemeralFallbackDisposal: 'strip', closedMessage: 'closed', deleteUserMessages: false, timeoutMessage: '*This interaction has timed out.*' } }));
 
     expect(interaction.editReply).toHaveBeenCalledTimes(1);
     // The payload is sent via editReply; ephemeral was set on deferReply, not here
@@ -433,13 +435,13 @@ describe('_editEphemeralMessage', () => {
     const adapter = new DiscordAdapter(interaction);
 
     // First render to establish ephemeral message
-    await adapter.sendPayload(embedsPayload({ behavior: { messageCleanup: 'edit', ephemeral: true, ephemeralFallbackDisposal: 'strip', closedMessage: 'closed', deleteUserMessages: false } }));
+    await adapter.sendPayload(embedsPayload({ behavior: { messageCleanup: 'edit', ephemeral: true, ephemeralFallbackDisposal: 'strip', closedMessage: 'closed', deleteUserMessages: false, timeoutMessage: '*This interaction has timed out.*' } }));
     adapter.seedDeferEphemeral(true);
 
     // Simulate a followUp message by triggering a mode change (layout → embeds transition)
     // Instead, directly test via postAndStrip → followUp for ephemeral
     await adapter.sendPayload(
-      embedsPayload({ behavior: { messageCleanup: 'postAndStrip', ephemeral: true, ephemeralFallbackDisposal: 'strip', closedMessage: 'closed', deleteUserMessages: false } }),
+      embedsPayload({ behavior: { messageCleanup: 'postAndStrip', ephemeral: true, ephemeralFallbackDisposal: 'strip', closedMessage: 'closed', deleteUserMessages: false, timeoutMessage: '*This interaction has timed out.*' } }),
     );
 
     // followUp was called to post the new message

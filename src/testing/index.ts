@@ -5,5 +5,5 @@ export type {
 } from './createTestSession';
 export { buildStubClient, buildStubInteraction } from './stubs';
 export { SimulatedAdapter, SimulatedTimeoutError } from './SimulatedAdapter';
-export { EventLog } from './EventLog';
-export type { SessionEvent } from './EventLog';
+export { EventLog } from '../tracing/EventLog';
+export type { SessionEvent } from '../tracing/EventLog';
