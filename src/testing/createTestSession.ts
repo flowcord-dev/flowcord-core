@@ -15,7 +15,7 @@
 import type { CreateMenuDefinitionFn } from '../registry/MenuRegistry';
 import type { BehaviorPolicy } from '../types/behavior';
 import { MenuEngine } from '../engine/MenuEngine';
-import { SimulatedAdapter } from '../adapter/SimulatedAdapter';
+import { SimulatedAdapter } from './SimulatedAdapter';
 import { EventLog } from '../tracing/EventLog';
 import { buildStubClient, buildStubInteraction } from './stubs';
 

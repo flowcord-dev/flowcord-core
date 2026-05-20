@@ -940,7 +940,9 @@ export class MenuSession implements MenuSessionLike {
     const userId = this._commandInteraction.user.id;
     const responseType = this._currentMenu.getResponseType();
 
-    // Build the race contestants. Modal is always included.
+    // Build the race contestants. Modal is always the primary racer.
+    // Component and message racers are included so that if the user
+    // dismisses the modal, underlying buttons/messages remain responsive.
     const racers: Promise<{
       type: 'modal' | 'component' | 'message';
       raw?: ModalSubmitInteraction;

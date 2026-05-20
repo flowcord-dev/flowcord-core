@@ -11,7 +11,7 @@
  * - endPromise resolves after sendTerminalPayload() is called.
  * - All normalized payloads are appended to renders[] / terminals[] for assertions.
  */
-import type { FlowCordAdapter } from './FlowCordAdapter';
+import type { FlowCordAdapter } from '../adapter/FlowCordAdapter';
 import type {
   AwaitOptions,
   NormalizedComponentInteraction,
@@ -21,7 +21,7 @@ import type {
   NormalizedRenderPayload,
   NormalizedTerminalPayload,
   NormalizedTerminalReason,
-} from './types';
+} from '../adapter/types';
 import type { RenderMode } from '../types/common';
 
 /** Thrown when an InteractionQueue times out waiting for an item. */
@@ -44,6 +44,7 @@ class InteractionQueue<T> {
   private _waiting: ((item: T) => void) | null = null;
   private _waitingReject: ((err: Error) => void) | null = null;
   private readonly _safetyTimeout: number;
+  private _timeoutHandle: ReturnType<typeof setTimeout> | null = null;
 
   constructor(safetyTimeout = 5000) {
     this._safetyTimeout = safetyTimeout;
@@ -54,6 +55,11 @@ class InteractionQueue<T> {
       const resolve = this._waiting;
       this._waiting = null;
       this._waitingReject = null;
+      // Cancel the safety timeout so it does not keep the process alive.
+      if (this._timeoutHandle !== null) {
+        clearTimeout(this._timeoutHandle);
+        this._timeoutHandle = null;
+      }
       resolve(item);
     } else {
       this._queue.push(item);
@@ -69,18 +75,27 @@ class InteractionQueue<T> {
       this._waiting = resolve;
       this._waitingReject = reject;
 
-      setTimeout(() => {
+      this._timeoutHandle = setTimeout(() => {
+        this._timeoutHandle = null;
         if (this._waiting === resolve) {
           this._waiting = null;
           this._waitingReject = null;
           reject(new SimulatedTimeoutError());
         }
       }, this._safetyTimeout);
+      // Don't prevent Node/Jest from exiting if only this timer remains.
+      // The timer is still cleared normally via clearTimeout() when an item
+      // is enqueued — unref() only affects process exit, not timer firing.
+      (this._timeoutHandle as unknown as NodeJS.Timeout).unref?.();
     });
   }
 
   clear(): void {
     this._queue.length = 0;
+    if (this._timeoutHandle !== null) {
+      clearTimeout(this._timeoutHandle);
+      this._timeoutHandle = null;
+    }
     if (this._waitingReject) {
       this._waitingReject(new SimulatedTimeoutError('Queue cleared'));
     }
@@ -97,6 +112,15 @@ export class SimulatedAdapter implements FlowCordAdapter {
 
   private _activeMessageMode: RenderMode | null = null;
   private _endResolve!: (reason: NormalizedTerminalReason) => void;
+
+  /**
+   * True after sendPayload() is called, cleared when render listeners are
+   * notified in awaitComponent/awaitMessage. This guards against the
+   * awaitComponent call inside awaitModalInteraction (the modal-dismiss racer)
+   * triggering waitForNextRender() prematurely — only a call that follows an
+   * actual render should notify.
+   */
+  private _hasPendingRender = false;
 
   /** Resolves when sendTerminalPayload() is called. */
   readonly endPromise: Promise<NormalizedTerminalReason>;
@@ -141,24 +165,35 @@ export class SimulatedAdapter implements FlowCordAdapter {
   async sendPayload(payload: NormalizedRenderPayload): Promise<void> {
     this.renders.push(payload);
     this._activeMessageMode = payload.mode;
-
-    // Notify all pending waitForNextRender() listeners
-    const listeners = this._renderListeners.splice(0);
-    for (const listener of listeners) {
-      listener();
-    }
+    // Mark that a render occurred. Render listeners will be notified in the
+    // next awaitComponent/awaitMessage call (the main-loop "ready for input"
+    // call), NOT here. This prevents awaitComponent calls that are part of a
+    // modal-dismiss race from triggering waitForNextRender() prematurely.
+    this._hasPendingRender = true;
   }
 
   awaitComponent(
     options: AwaitOptions,
   ): Promise<NormalizedComponentInteraction> {
+    if (this._hasPendingRender) {
+      this._hasPendingRender = false;
+      const listeners = this._renderListeners.splice(0);
+      for (const listener of listeners) {
+        listener();
+      }
+    }
     return this._componentQueue.dequeue(options);
   }
 
   awaitMessage(options: AwaitOptions): Promise<NormalizedMessage> {
-    // awaitMessage sets _isReset on DiscordAdapter, but here we handle the
-    // "message collected" signal implicitly — SimulatedAdapter tracks no
-    // separate reset state since sendPayload always appends to renders[].
+    // Same pattern as awaitComponent.
+    if (this._hasPendingRender) {
+      this._hasPendingRender = false;
+      const listeners = this._renderListeners.splice(0);
+      for (const listener of listeners) {
+        listener();
+      }
+    }
     return this._messageQueue.dequeue(options);
   }
 
